@@ -1,0 +1,17 @@
+#!/bin/sh
+
+DATADIR=data
+
+mkdir -p $DATADIR
+
+rm -f $DATADIR/master.db
+sqlite3 $DATADIR/master.db < $top_srcdir/mk-tabledb.sql
+
+if [ ! -f $DATADIR/master.db ]
+then
+	rm -rf $DATADIR
+	echo "test database not found."
+	exit 1
+fi
+
+exit 0

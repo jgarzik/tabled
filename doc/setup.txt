@@ -1,0 +1,19 @@
+
+Setup instructions
+==================
+
+1) Create/choose location for process-id file.  Pass this to the
+daemon using the argument --pid=FILE
+
+2) Create/choose data directory, where metadata and data is stored.  Pass this
+to the daemon using the argument --data=DIRECTORY
+
+3) Initialize the database inside the data directory:
+
+	sqlite3 $data_dir/master.db < mk-tabledb.sql
+
+   The schema file mk-tabledb.sql is in the tarball with the rest of the
+   source code.
+
+4) start the daemon!
+

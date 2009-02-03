@@ -1,0 +1,22 @@
+#!/bin/sh
+
+if [ ! -f tabled.pid ]
+then
+	echo "no pid file found."
+	exit 1
+fi
+
+PID=`cat tabled.pid`
+
+rm -f psout.$$
+ps ax | grep tabled | grep -v grep > psout.$$
+if grep -q "$PID" psout.$$
+then
+	RC=0
+else
+	echo "pid not found in process list."
+	RC=1
+fi
+rm -f psout.$$
+
+exit $RC

@@ -1,0 +1,13 @@
+This is tabled, the distributed lookup table daemon.
+
+(though currently non-distributed)
+
+Current dependencies:
+- GLib 2.x.x
+- pcre
+- sqlite 3.x
+- openssl
+
+Only tested on Linux, though portability patches are welcome.
+
+See doc/ subdirectory for more information.

@@ -1,0 +1,23 @@
+#!/bin/sh
+
+if [ ! -f tabled.pid ]
+then
+	echo no daemon pid file found.
+	exit 1
+fi
+
+kill `cat tabled.pid`
+
+for ((n = 0; n < 10; n++))
+do
+	if [ ! -f tabled.pid ]
+	then
+		exit 0
+	fi
+
+	sleep 1
+done
+
+echo "PID file not removed, after signal sent."
+rm -f tabled.pid
+exit 1

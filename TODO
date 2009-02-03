@@ -1,0 +1,36 @@
+
+buckets
+=======
+- support bucket ACL query or edit (?acl query param)
+
+- make sure to escape lt/gt/amp in XML output (list buckets, list keys)
+
+
+objects
+=======
+- support object ACL query or edit (?acl query param)
+
+- store as compressed data (unless there is little advantage to doing so,
+  such as with already-compressed data)
+
+  headers
+  -------
+  - x-amz-meta-
+  - x-amz-date
+
+  - Content-Encoding
+  - Content-MD5 (note: base64-encoded, not just hex string)
+
+  - Range
+  - Content-Range
+
+
+system
+======
+- read list of error codes, and attempt to apply as many as possible
+  to the existing codebase (re-analyze every year or two after that)
+
+- SOAP?  Amazon forums say only 1% of userbase uses this, so maybe not
+
+- request logging (basic, and to a specified bucket)
+

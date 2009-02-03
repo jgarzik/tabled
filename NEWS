@@ -1,0 +1,7 @@
+Version 0.1 - April 6, 2008
+
+- initial version
+- supports all basic REST operations.
+- single-node server only, no distributed network support
+- no SSL support, etc.  see TODO
+

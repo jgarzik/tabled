@@ -1,0 +1,581 @@
+commit c5847c60b9d6dbe7ca06ef011eb1288e3b5ac6b0
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Tue Feb 3 17:28:19 2009 -0500
+
+    include/elist.h: canonicalize #endif
+    
+    Signed-off-by: Jeff Garzik <jgarzik@redhat.com>
+
+commit 54fb6168ae2ebd92d5d4100f9fe28eb761edea2e
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 17 18:22:33 2008 -0400
+
+    Rename Makefile var SSL_LIBS to CRYPTO_LIBS, in prep for SSL arrival.
+
+commit edcbf94ec17cf059426c2a42b29b91638ecbff20
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 17 18:18:17 2008 -0400
+
+    [server] import minor improvements from storaged
+
+commit b6e6ef0bc55cd77a8878c44fa0b575a30a7ab970
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 17 18:10:21 2008 -0400
+
+    [server] support IPv6 and binding to multiple sockets
+
+commit 24bf83adcb561f262b02b15f84ebf7d7e14168de
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 13 14:09:33 2008 -0400
+
+    [server] Fix ORDER BY clause, to sort on correct column
+
+commit fc4f56a957b3d6997e004e0bc1676ee83eebaca0
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 11 03:16:17 2008 -0400
+
+    [server] support If-[None-]Match, If-[Un]Modified-Since headers
+
+commit b6c94cc24c0dc77ed4d96157d9eea8c12ccf6af4
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 11 01:12:39 2008 -0400
+
+    [lib] httputil: add str2time() date parsing function
+
+commit 75f635067610b3c308c9286312f1164ffe2ddc27
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 11 00:40:23 2008 -0400
+
+    [server] return user-provided headers in object GET
+
+commit 732000b10d21fb546b417918f1101994f4063946
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 23:47:21 2008 -0400
+
+    [server] store and delete HTTP custom user-provided headers
+
+commit 26da861f90a8048bde30dec0dce9b59376783c12
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 19:43:04 2008 -0400
+
+    [lib] s3c: add 'verbose' flag; emit Accept-Encoding where reasonable
+    
+    - add 'verbose' bool, which enables curl's stderr debug output
+      (includes protocol traces)
+    
+    - emit Accept-Encoding header for object-get and list operations
+
+commit 15ee059a8e8c872bd471898f3048afa522986ee4
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 19:40:43 2008 -0400
+
+    Reorganize and update TODO
+
+commit 4378303808603a1f576c9e91115f43fd193ccd10
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 10:55:33 2008 -0400
+
+    [server] remove redundant URI output to syslog
+
+commit 9b411c8d1ae599b79dd1279a9f507fe7ad96a4a4
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 10:54:56 2008 -0400
+
+    [lib] trim trailing whitespace
+
+commit 88a667fc1f7ba63dfba012ffe80e81a0ea9963c6
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:43:00 2008 -0400
+
+    [server] Eliminate object_head(), since object_get() can easily do HEAD
+
+commit 3c8410c17a4faef3b06d4cb96d84799f1359ba97
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:35:14 2008 -0400
+
+    Minor TODO update
+
+commit 0f67efe48d851192a8c09b9a3c90a65c5c8a6d80
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:31:44 2008 -0400
+
+    [server] Access control checks for object-del, object-head ops
+
+commit ef8cf8d96fa608c76f9611960ed6894d7a58f592
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:26:27 2008 -0400
+
+    [server] Add access checks to obj-get.  Minor cleanups to other access code.
+
+commit 3abf40f5488181012d8d928887b31cd177f17c2f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:11:54 2008 -0400
+
+    Add new doc/ subdirectory, and document daemon setup instructions.
+
+commit 47f722c9892baf0749744020a4875de0ff510813
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 08:01:25 2008 -0400
+
+    [server] Add access checks to the bucket-list (GET) operation
+
+commit a98d7f0e2cfc595ecaa6b90a7d76ed0ec2f2b360
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 07:37:41 2008 -0400
+
+    [server] Use temp var 'stmt' to make SQL code a lot more readable
+
+commit 53f7e705f87d94dcb82f30a88319a28aa8f06118
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 07:25:22 2008 -0400
+
+    [server] Prefer SQLITE_STATIC to SQLITE_TRANSIENT.  Also, an ACL cleanup.
+    
+    - SQLITE_STATIC is sufficient for our usage of sqlite, to prefer that
+      to the more expensive SQLITE_TRANSIENT
+    
+    - add "," to end of default ACL string, to simplify parsing in future
+
+commit 35d2d3b3bff12953f1c9e061e4ca5599fc0b05c3
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 07:18:49 2008 -0400
+
+    [server] Access checks and cleanups for bucket-del op
+
+commit 6067c44f789d6223b04e0c5d60f5053165e5d0b2
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 10 07:07:28 2008 -0400
+
+    [server] Add access control checks to service-list (GET) operation
+
+commit d2e567118d7574d0503194d61068d20d1ff0066c
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 23:08:36 2008 -0400
+
+    [server] Strip out some overly-verbose, yet less-than-useful debug output
+
+commit cf64a2b66545308412ba1de2d54b8b1cfeafa6f8
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 21:43:15 2008 -0400
+
+    Update TODO item.
+
+commit 0e6a10f210624e65c1af2d1abf605ce49cd75ddf
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 21:38:11 2008 -0400
+
+    [server] support HTTP 1.1 pipelining
+
+commit 7bcb2094ef6bc1dd1a25938d3fb8eb769afca561
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 21:37:09 2008 -0400
+
+    [lib] add http11() version test function
+
+commit 35ad6cb64a2cdd190f4736fea037d3aa401fd23f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 19:52:25 2008 -0400
+
+    [server] default Content-Type is binary/octet-stream, if none is supplied
+
+commit 807dd1722d6d6c0751804cc43efb3fa6f004ab6d
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 19:46:02 2008 -0400
+
+    [server] Support 'Expect: 100-continue' HTTP header and response (100)
+
+commit 9a6db927da22117439c1dd424883d74a0a5ef39a
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 19:44:17 2008 -0400
+
+    [lib] s3c: in object PUT, don't manually set Content-Length, curl does so
+    for us
+
+commit 09afbf26d977c8549f94d83e764c82aa69f7fda8
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 17:22:44 2008 -0400
+
+    [test] Add basic "it works" GET/PUT/DELETE object tests.
+
+commit cd356d5a669ef6e79bb6413af5a55155033c37fa
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 17:20:41 2008 -0400
+
+    [server] fix object storage bugs
+    
+    - make sure to put into proper client TCP socket state
+    
+    - fix stored filename to be zero-prefixed, not space-prefixed
+    
+    - check for xfer completion at beginning of http data-in phase
+      (most likely superfluous paranoia, but it can't hurt)
+
+commit c41a9df174a454b192b71aa4954d3acc544e9d54
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 17:19:49 2008 -0400
+
+    [lib] s3c: reset curl options, at the beginning of each request
+
+commit 885e774d1770dcadf2ab8f346bf74d507fd702c4
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 06:30:37 2008 -0400
+
+    [test] Makefile.am: consolidate libraries into common var
+
+commit 1548de5931fbbb42383122083368bc443ea041fb
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 9 06:28:25 2008 -0400
+
+    [server] Fix HTTP data-in (PUT) polling bug.  Enhance error log output.
+    
+    Also, make sure tests run the server in debug mode, for now.
+
+commit 6f1584711632ae1c427180b77e9970a218f5428f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Tue Apr 8 23:28:54 2008 -0400
+
+    [lib] s3c: implement s3c_keys(), s3c_free_object(), s3c_free_keylist()
+    
+    Library should now be feature-complete.
+
+commit b03e5c525e12d1d921fad57726accadaa755b47c
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Tue Apr 8 22:24:28 2008 -0400
+
+    [lib] s3c: add s3c_get_inline(), s3c_put(), s3c_put_inline()
+
+commit 93163d1a2efc24c7b32a0c75d8bcb9f18b6ba305
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Tue Apr 8 02:48:59 2008 -0400
+
+    [lib] s3c: implement s3c_get(), s3c_del()
+
+commit efe7c067c45ec3272f98e59c21ff69acdaf5a6f1
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 23:04:00 2008 -0400
+
+    [test] minor cleanups
+    
+    - use check_PROGRAMS in Makefile.am, as noted in automake docs
+    
+    - invent and prefer TEST_HOST constant
+
+commit 10085c8e062a2f5cc29fa5db215fd9b6e248994f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 22:16:00 2008 -0400
+
+    [test] add test for basic bucket PUT, DELETE operations
+
+commit 36a7ac58e451b737b2e308632de1a19ec18c2b49
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 22:14:58 2008 -0400
+
+    [server] syslog error code for all errors returned to clients
+
+commit 232acbe21c30f6fb77a9df866d6a12cdf47d30d8
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 22:14:14 2008 -0400
+
+    [lib] s3c: add s3c_{add,del}_bucket
+
+commit d9c6a39619430afeca465757618c2f65b396e581
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 22:13:12 2008 -0400
+
+    [test] start-daemon: permit passing of additional arguments
+    when run manually.
+
+commit cbb44b201a0aae07293d5fab6def650195c9589f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 21:21:57 2008 -0400
+
+    [lib] s3c: parse bucket list.  implement bucket[ list] free API funcs.
+
+commit c0fae3ec511b404f5719a4a48d9987c82e39b05a
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:54:50 2008 -0400
+
+    Move server source into new server/ directory.
+
+commit d2eba499dcb1fbdfc1ab68e1d040eb6031426ffe
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:48:22 2008 -0400
+
+    Trim trailing whitespace.
+
+commit b45b080b1205cf62c7f89d9ae82373b0c9fe2d68
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:48:00 2008 -0400
+
+    Call setlocale(3) in each test.
+
+commit 0d114612c5a321df0a4d2db36608b1defaa8feb2
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:44:12 2008 -0400
+
+    Move elist.h to include/.  Fix a couple distcheck bugs.
+
+commit 5e8fb77b8b397d5dd4df67f36b05c31e60a92247
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:40:12 2008 -0400
+
+    Move uri.c and some util.c code to libhttputil.
+
+commit fa835eaaf88d66b25496c85e4e334b9c89d8d770
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 20:31:43 2008 -0400
+
+    Move test code to new libraries: libs3c, libhttputil
+
+commit fbabb78118a0ce1a439d5778e1098d51d5dd3ff4
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 05:31:54 2008 -0400
+
+    Flesh out our first working test, "it-works"
+
+commit 1d217a705a18f1859e847e60eb4d654f8ae35ccb
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 02:52:25 2008 -0400
+
+    Add stub test framework.
+
+commit 4e12abf094a6eb9341736eedfdc7899962e273d6
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 02:50:27 2008 -0400
+
+    Fix command line parsing to properly permit data dir change.
+
+commit fee809c70c74ad907c5f975e0414b0ed48b6e80a
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Mon Apr 7 02:49:50 2008 -0400
+
+    Micro-opt: store query string copy in alloca() space, rather than malloc
+
+commit 410b5511185c7318c71a59693d49f0364cb8cf24
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 22:42:45 2008 -0400
+
+    Eliminate needless malloc+copy of object data for each object GET.
+
+commit 8b72f90b2f32dccda99d4e099ff83ca488cf8eb6
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 22:35:59 2008 -0400
+
+    Micro-opt in req_sign(): eliminate needless malloc+copy
+
+commit 35389d2d939e0aaaac76bdfd1ae118b71e7ed0ee
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 22:21:21 2008 -0400
+
+    fsync(2) object data to disk.  Simplify object_put_end() err handling.
+
+commit 50fe8329b10a5a8ecc4e1e7175d3b260ee23f133
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 22:14:18 2008 -0400
+
+    Move SQL stuff to util.c.  Call sqlite3_close() to close db upon exit.
+
+commit f9cb62326594ce500044b3b26e35e2c3d3d422cf
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 22:07:22 2008 -0400
+
+    Fix object ACL creation.  Add 'unique' constraint to object table index.
+
+commit 154334f43159ebd2ba9124469e183727b5e1ba68
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 21:45:46 2008 -0400
+
+    Bump version to 0.2git.
+
+commit ab0b5f932190c1bd3df93366f7b744d30dab3c17
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 20:07:28 2008 -0400
+
+    Version 0.1.
+
+commit 608d5c7dc3fff7d2ae9339cad6894e2a352036ea
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 20:03:58 2008 -0400
+
+    Fix sqlite bugs.  Set SO_REUSEADDR on TCP socket.
+
+commit 0a452413ee89c2cea5e7d4448d04b9279f4b4739
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 18:11:43 2008 -0400
+
+    Force counter (used for filename generation) to 64-bit.
+
+commit f3ba60f2d325661295812371de04f614a30900da
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 18:01:14 2008 -0400
+
+    Convert final op (list-keys) to sqlite.
+    
+    - clean out last vestiges of gdbm
+    - clean out last vestiges of Berkeley DB
+    - use alloca() for some string allocations, rather than asprintf()
+    - clean up object_head() error handling
+
+commit f6d6c1c3b2f980c388180d779d24070ebe162f64
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 08:14:52 2008 -0400
+
+    Convert all obj ops, save for list-keys, to using sqlite db.
+
+commit 89a58992b8145e04f8a34c1efd2eb61722ce81da
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 06:07:49 2008 -0400
+
+    Convert service list, bucket add/del to using sqlite for database services.
+    
+    This breaks object storage/retrieval temporarily.
+
+commit 8c1faaf735eea6750dd8ba5af5e040f3f4191419
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sun Apr 6 02:59:28 2008 -0400
+
+    Store object owner in database.
+
+commit cf6f2eef986e833513129cf0a546cc747499e44a
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sat Apr 5 06:13:38 2008 -0400
+
+    Output CommonPrefixes list, in list-keys operation.
+
+commit 0c205f911f92e60cdc8fbebc64bd700a329741e9
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sat Apr 5 05:48:42 2008 -0400
+
+    Add TODO list.  Note a FIXME in the code.
+
+commit ff01f1b63663db3ec6e4a0aeb1f2a6021152133b
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sat Apr 5 05:11:42 2008 -0400
+
+    Fix memory leaks and illegal accesses caught by valgrind.
+
+commit 5a4dcc00ad8a3f7801fccb582411cb73c70ba665
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sat Apr 5 04:03:52 2008 -0400
+
+    Fix per-request memory leaks.
+
+commit 3bdc631da2058618b94c3e67b31061fac5e502d6
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Sat Apr 5 03:56:58 2008 -0400
+
+    Implement HMAC-SHA1 authorization checks.  A couple minor bug fixes.
+
+commit 8924fd6c05a46bed2e58bb846fc7a08f16513e32
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 4 07:30:47 2008 -0400
+
+    Various bug fixes.
+
+commit edccc0ffdb3496d2023f319fae7e867c6ae0c8d7
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 4 05:21:30 2008 -0400
+
+    Fix off-by-one in object metadata deletion.
+
+commit e34325e52d38dcee0e55ddd83ac9835c46b81bea
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 4 05:12:11 2008 -0400
+
+    Add options to enable verbose debugging output.  Fix bugs...
+    
+    - fix off-by-one in database fetch key length
+    
+    - only check for missing Content-Length header when it matters
+    
+    - fix Host/bucket parsing
+
+commit a30cfa5f36f167f0d21809193367e16a3d277096
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Fri Apr 4 02:23:37 2008 -0400
+
+    Move bucket, obj code from server.c to {bucket,object}.c.  No code changes.
+
+commit 24e44dfdf883b5cd1cffab3706e952d81507c6aa
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 23:32:28 2008 -0400
+
+    Move some of the more generic code to new file util.c.
+
+commit 8db6ad6f0a5a2852d9e728ab1e920d2516f683ab
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 23:21:10 2008 -0400
+
+    Implement bucket list-keys (GET) operation.
+
+commit f78960e7d65ba2fdee31cb74f17890fb931d1a2d
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 18:05:29 2008 -0400
+
+    Only URL-unescape path, not entire URI.  Store bucket keys nul-terminated.
+
+commit 69845917e215db7e18b4895a2c1a6dba183a903f
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 17:29:30 2008 -0400
+
+    Implement object GET operation.
+
+commit 365ddb96001d3911eefdf8aeaec97d8fff8c30b2
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 16:01:58 2008 -0400
+
+    s/cli_write/cli_writeq/.  Fix net-output bugs, clean up net-output code.
+
+commit 5fd6f4cd43e20c84f7b7a6a371d1e2a859a610cb
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 15:02:56 2008 -0400
+
+    Implement object PUT (store) operation.
+
+commit 73587ee385bd42e0ddc456bc4e5b32db9539b28c
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 12:09:07 2008 -0400
+
+    Update README to reflect new project
+
+commit ac2e8ee0abcabacc243d7f7568487d598c6f5a5c
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 03:56:04 2008 -0400
+
+    Implement object DELETE, HEAD.
+
+commit fa1a7359f51301d73a8bdc38c91e5baf6ba1d3fd
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 03:01:21 2008 -0400
+
+    Fill in bucket add, del.  Link and use GDBM.  Ignore Berkeley DB (for now).
+
+commit bee252a1bad2b1614808862d025990abb96c8694
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 02:23:45 2008 -0400
+
+    Implement service list operation.
+
+commit 7bf990933f4fce94b0da137e8113fcea9f6b94a3
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Thu Apr 3 02:16:43 2008 -0400
+
+    Add GLib to link, remove pthreads from libs/cflags.
+
+commit 00e0c8036f8b49b8083ae1dae132e6db7a533a51
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 2 23:57:31 2008 -0400
+
+    Fill in basic HTTP request processing skeleton, and error handling.
+
+commit cdeb37d5dea895d7c3cb78480720c4c5e809fcdf
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 2 23:03:48 2008 -0400
+
+    Link with pcre.
+
+commit c9f4d96b5d037003f0784709285b0ee2d4c9da9b
+Author: Jeff Garzik <jeff@garzik.org>
+Date:   Wed Apr 2 21:36:39 2008 -0400
+
+    Remove all traces of UDP socket usage.
