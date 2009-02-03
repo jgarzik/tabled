@@ -1076,6 +1076,7 @@ err_out:
 
 static int net_open(void)
 {
+	int ipv6_found;
 	int rc;
 	struct addrinfo hints, *res, *res0;
 
@@ -1088,12 +1089,32 @@ static int net_open(void)
 	if (rc) {
 		syslog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
 		       tabled_srv.port, gai_strerror(rc));
-		return -EINVAL;
+		rc = -EINVAL;
+		goto err_addr;
+	}
+
+	/*
+	 * We rely on getaddrinfo to discover if the box supports IPv6.
+	 * Much easier to sanitize its output than to try to figure what
+	 * to put into ai_family.
+	 *
+	 * These acrobatics are required on Linux because we should bind
+	 * to ::0 if we want to listen to both ::0 and 0.0.0.0. Else, we
+	 * may bind to 0.0.0.0 by accident (depending on order getaddrinfo
+	 * returns them), then bind(::0) fails and we only listen to IPv4.
+	 */
+	ipv6_found = 0;
+	for (res = res0; res; res = res->ai_next) {
+		if (res->ai_family == PF_INET6)
+			ipv6_found = 1;
 	}
 
 	for (res = res0; res; res = res->ai_next) {
 		struct server_socket *sock;
 		int fd, on;
+
+		if (ipv6_found && res->ai_family == PF_INET)
+			continue;
 
 		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 		if (fd < 0) {
@@ -1110,14 +1131,6 @@ static int net_open(void)
 		}
 
 		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
-			/* sigh... */
-			if (errno == EADDRINUSE && res->ai_family == PF_INET) {
-				if (debugging)
-					syslog(LOG_INFO, "already bound to socket, ignoring");
-				close(fd);
-				continue;
-			}
-
 			syslogerr("tcp bind");
 			rc = -errno;
 			goto err_out;
@@ -1162,6 +1175,8 @@ static int net_open(void)
 	return 0;
 
 err_out:
+	freeaddrinfo(res0);
+err_addr:
 	return rc;
 }
 
