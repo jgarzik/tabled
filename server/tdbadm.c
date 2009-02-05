@@ -1,12 +1,14 @@
 
+#include "tabled-config.h"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <getopt.h>
 #include <ctype.h>
+#include <argp.h>
 #include <limits.h>
 
 #include <tdb.h>
@@ -20,6 +22,28 @@ static int mode_adm;
 static struct tabledb tdb;
 static unsigned long invalid_lines;
 static char *tdb_dir;
+
+const char *argp_program_version = PACKAGE_VERSION;
+
+static struct argp_option options[] = {
+	{ "users", 'u', NULL, 0,
+	  "User list input (into database)" },
+	{ "list-users", 'U', NULL, 0,
+	  "User list output (from database)" },
+	{ "tdb", 't', "DIRECTORY", 0,
+	  "Store TDB database environment in DIRECTORY" },
+	{ }
+};
+
+static const char doc[] =
+"tbladm - TDB administration";
+
+
+static error_t parse_opt (int key, char *arg, struct argp_state *state);
+
+
+static const struct argp argp = { options, parse_opt, NULL, doc };
+
 
 static void die(const char *msg)
 {
@@ -154,49 +178,47 @@ static void do_user_list(void)
 	tdb_close(&tdb);
 }
 
-static void usage(const char *arg0)
+static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
-	fprintf(stderr,
-"%s [options]\n"
-"\n"
-"Options:\n"
-"-d DIR		TDB directory, normally subdir of master db dir\n"
-"-U		List user/password file\n"
-"-u		Load user/password file into database\n", arg0);
+	struct stat st;
+
+	switch(key) {
+	case 't':
+		if (stat(arg, &st) < 0) {
+			perror(tdb_dir);
+			return ARGP_ERR_UNKNOWN;
+		}
+
+		if (!S_ISDIR(st.st_mode))
+			return ARGP_ERR_UNKNOWN;
+
+		tdb_dir = arg;
+		break;
+	case 'u':
+		mode_adm = mode_user;
+		break;
+	case 'U':
+		mode_adm = mode_user_list;
+		break;
+	default:
+		return ARGP_ERR_UNKNOWN;
+	}
+
+	return 0;
 }
 
 int main(int argc, char *argv[])
 {
-	int ch;
-	struct stat st;
+	error_t aprc;
 
-	while ((ch = getopt(argc, argv, "d:uU")) != -1) {
-		switch (ch) {
-		case 'd':
-			tdb_dir = optarg;
-			break;
-		case 'u':
-			mode_adm = mode_user;
-			break;
-		case 'U':
-			mode_adm = mode_user_list;
-			break;
-		default:
-			usage(argv[0]);
-			return 1;
-		}
+	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
+	if (aprc) {
+		fprintf(stderr, "argp_parse failed: %s\n", strerror(aprc));
+		return 1;
 	}
 
 	if (!tdb_dir)
 		die("no tdb dir (-d) specified\n");
-
-	if (stat(tdb_dir, &st) < 0) {
-		perror(tdb_dir);
-		exit(1);
-	}
-
-	if (!S_ISDIR(st.st_mode))
-		die("tdb dir (-d) not a directory\n");
 
 	switch (mode_adm) {
 	case mode_user:
