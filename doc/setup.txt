@@ -9,22 +9,24 @@ tdb_dir                = /spare/tmp/tabled/lib/tdb
 pid_file               = /spare/tmp/tabled/run/tabled.pid
 
 
-1) Create/choose location for process-id file.  Pass this to the
+*) Create/choose location for process-id file.  Pass this to the
 daemon using the argument --pid=FILE
 
-2) Create/choose data directory, where sqlite metadata and object data
+*) Create/choose data directory, where sqlite metadata and object data
 is stored.  Pass this to the daemon using the argument --data=DIRECTORY
 
-3) Initialize the database inside the data directory:
+*) Initialize the database inside the data directory:
 
 	sqlite3 $data_dir/master.db < mk-tabledb.sql
 
    The schema file mk-tabledb.sql is in the tarball with the rest of the
    source code.
 
-4) Create/choose TDB data directory, where Berkeley DB stores
+*) Create/choose TDB data directory, where Berkeley DB stores
    data and metadata.  Pass this to the daemon using the argument
    --tdb=DIRECTORY
 
-5) start the daemon!
+*) Load user/password pairs into TDB, using tdbadm utility
+
+*) start the daemon!
 
