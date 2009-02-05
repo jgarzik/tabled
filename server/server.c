@@ -56,6 +56,8 @@ static struct argp_option options[] = {
 	  "bind to port PORT" },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE" },
+	{ "tdb", 't', "DIRECTORY", 0,
+	  "Store TDB metadata in DIRECTORY" },
 	{ }
 };
 
@@ -75,6 +77,7 @@ int debugging = 0;
 
 struct server tabled_srv = {
 	.data_dir		= "/spare/tmp/tabled/lib",
+	.tdb_dir		= "/spare/tmp/tabled/lib/tdb",
 	.pid_file		= "/spare/tmp/tabled/run/tabled.pid",
 	.port			= TABLED_DEF_PORT,
 };
@@ -169,6 +172,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'P':
 		tabled_srv.pid_file = arg;
+		break;
+	case 't':
+		tabled_srv.tdb_dir = arg;
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -655,6 +661,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	if (auth) {
 		char b64sig[64];
 		int usiglen, rc;
+		DBT key, val;
 
 		if (pcre_exec(patterns[pat_auth].re, NULL,
 			      auth, strlen(auth), 0, 0,
@@ -663,10 +670,39 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			goto err_out;
 		}
 
+		memset(&key, 0, sizeof(key));
+		memset(&val, 0, sizeof(val));
+
 		user = strndup(auth + captured[2], captured[3] - captured[2]);
 		usiglen = captured[5] - captured[4];
 
-		req_sign(&cli->req, buck_in_path ? NULL : bucket, user, b64sig);
+		key.data = user;
+		key.size = strlen(user) + 1;
+
+		val.flags = DB_DBT_MALLOC;
+
+		/* to prevent attacks that validate a username's
+		 * existence, we return the same error regardless
+		 * of whether the user exists or signature does
+		 * not match.
+		 */
+
+		rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
+		if (rc) {
+			val.data = strdup("");
+
+			if (rc != DB_NOTFOUND) {
+				char s[64];
+
+				sprintf(s, "get user '%s'", user);
+				tdb.passwd->err(tdb.passwd, rc, s);
+			}
+		}
+
+		req_sign(&cli->req, buck_in_path ? NULL : bucket,
+			 val.data, b64sig);
+
+		free(val.data);
 
 		rc = strncmp(b64sig, auth + captured[4], usiglen);
 
@@ -1298,6 +1334,7 @@ int main (int argc, char *argv[])
 	signal(SIGUSR1, stats_signal);
 
 	sql_init();
+	tdb_init();
 
 	/* create master epoll fd */
 	tabled_srv.epoll_fd = epoll_create(TABLED_EPOLL_INIT_SIZE);
@@ -1318,6 +1355,7 @@ int main (int argc, char *argv[])
 	syslog(LOG_INFO, "shutting down");
 
 	sql_done();
+	tdb_done();
 
 	rc = 0;
 

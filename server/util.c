@@ -1,5 +1,8 @@
+
 #define _GNU_SOURCE
+
 #include "tabled-config.h"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -13,6 +16,7 @@
 #include <openssl/hmac.h>
 #include <glib.h>
 #include <sqlite3.h>
+
 #include "tabled.h"
 
 static const char *sql_stmt_text[] = {
@@ -76,6 +80,7 @@ static const char *sql_stmt_text[] = {
 
 sqlite3_stmt *prep_stmts[st_last + 1] = { NULL, };
 sqlite3 *sqldb = NULL;
+struct tabledb tdb;
 
 size_t strlist_len(GList *l)
 {
@@ -249,3 +254,20 @@ void sql_done(void)
 {
 	sqlite3_close(sqldb);
 }
+
+void tdb_init(void)
+{
+	memset(&tdb, 0, sizeof(tdb));
+
+	tdb.home = tabled_srv.tdb_dir;
+
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
+		     "tabled", true))
+		exit(1);
+}
+
+void tdb_done(void)
+{
+	tdb_close(&tdb);
+}
+

@@ -6,7 +6,8 @@ then
 	exit 1
 fi
 
-../server/tabled -P tabled.pid -d "$PWD/data" -p 18080 --debug
+../server/tabled -P tabled.pid -d "$PWD/data" -t "$PWD/data/tdb" \
+		 -p 18080 --debug
 
 sleep 3
 

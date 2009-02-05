@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <httputil.h>
 #include <elist.h>
+#include <tdb.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -172,6 +173,7 @@ struct server {
 	unsigned long		flags;		/* SFL_xxx above */
 
 	char			*data_dir;	/* database/log dir */
+	char			*tdb_dir;	/* TDB metadata database dir */
 	char			*pid_file;	/* PID file */
 
 	char			*port;		/* bind port */
@@ -184,6 +186,8 @@ struct server {
 
 	struct server_stats	stats;		/* global statistics */
 };
+
+extern struct tabledb tdb;
 
 /* bucket.c */
 extern bool has_access(const char *user, const char *bucket, const char *key,
@@ -229,6 +233,8 @@ extern bool sql_commit(void);
 extern bool sql_rollback(void);
 extern void sql_done(void);
 extern void sql_init(void);
+extern void tdb_done(void);
+extern void tdb_init(void);
 
 /* server.c */
 extern int debugging;

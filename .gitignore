@@ -21,8 +21,10 @@ stamp-h1
 
 # app-specific
 tabled
+tdbadm
 
 libtabled.a
+libtdb.a
 
 tabled*.tar.gz
 tabled-config.h*

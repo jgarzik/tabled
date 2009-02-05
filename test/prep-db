@@ -1,11 +1,14 @@
 #!/bin/sh
 
 DATADIR=data
+TDBDIR=$DATADIR/tdb
 
-mkdir -p $DATADIR
+mkdir -p $TDBDIR
 
 rm -f $DATADIR/master.db
 sqlite3 $DATADIR/master.db < $top_srcdir/mk-tabledb.sql
+
+cat $top_srcdir/test/users.data | ../server/tdbadm -u -d $TDBDIR
 
 if [ ! -f $DATADIR/master.db ]
 then

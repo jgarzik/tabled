@@ -4,6 +4,7 @@ INCLUDES	= -I$(top_srcdir)/include	\
 
 EXTRA_DIST =			\
 	test.h			\
+	users.data		\
 	prep-db			\
 	start-daemon		\
 	pid-exists		\

@@ -6,7 +6,7 @@
 
 #define TEST_HOST "pretzel.yyz.us"
 #define TEST_USER "testuser"
-#define TEST_USER_KEY "testuser"
+#define TEST_USER_KEY "testpw"
 
 #define OK(expr)				\
 	do {					\
