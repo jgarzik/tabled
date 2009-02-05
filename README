@@ -7,6 +7,7 @@ Current dependencies:
 - pcre
 - sqlite 3.x
 - openssl
+- db4 4.x
 
 Only tested on Linux, though portability patches are welcome.
 

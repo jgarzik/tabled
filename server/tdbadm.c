@@ -236,7 +236,7 @@ int main(int argc, char *argv[])
 	}
 
 	if (!tdb_dir)
-		die("no tdb dir (-d) specified\n");
+		die("no tdb dir (-t) specified\n");
 
 	switch (mode_adm) {
 	case mode_user:
