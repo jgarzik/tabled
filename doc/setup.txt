@@ -10,10 +10,10 @@ pid_file               = /spare/tmp/tabled/run/tabled.pid
 
 
 *) Create/choose location for process-id file.  Pass this to the
-daemon using the argument --pid=FILE
+   daemon using the argument --pid=FILE
 
 *) Create/choose data directory, where sqlite metadata and object data
-is stored.  Pass this to the daemon using the argument --data=DIRECTORY
+   is stored.  Pass this to the daemon using the argument --data=DIRECTORY
 
 *) Initialize the database inside the data directory:
 
@@ -26,7 +26,10 @@ is stored.  Pass this to the daemon using the argument --data=DIRECTORY
    data and metadata.  Pass this to the daemon using the argument
    --tdb=DIRECTORY
 
-*) Load user/password pairs into TDB, using tdbadm utility
+*) Load user/password pairs into TDB, using tdbadm utility.  The user/password
+   pairs are presented to tdbadm in a text file with this format:
+
+	username <TAB> password <NL>
 
 *) start the daemon!
 
