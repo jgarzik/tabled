@@ -45,9 +45,9 @@ const char *argp_program_version = PACKAGE_VERSION;
 
 static struct argp_option options[] = {
 	{ "users", 'u', NULL, 0,
-	  "User list input (into database)" },
+	  "User list input (from stdin, to database)" },
 	{ "list-users", 'U', NULL, 0,
-	  "User list output (from database)" },
+	  "User list output (from database, to stdout)" },
 	{ "tdb", 't', "DIRECTORY", 0,
 	  "Store TDB database environment in DIRECTORY" },
 	{ }
@@ -203,7 +203,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	switch(key) {
 	case 't':
 		if (stat(arg, &st) < 0) {
-			perror(tdb_dir);
+			perror(arg);
 			return ARGP_ERR_UNKNOWN;
 		}
 
