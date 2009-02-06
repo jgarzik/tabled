@@ -85,7 +85,7 @@ static void push_upw(DB_TXN *txn, char *user, char *pw)
 	val.data = pw;
 	val.size = strlen(pw) + 1;
 
-	rc = tdb.passwd->put(tdb.passwd, txn, &key, &val, 0);
+	rc = tdb.passwd->put(tdb.passwd, txn, &key, &val, DB_NOOVERWRITE);
 	if (rc) {
 		fprintf(stderr, "db put: %d\n", rc);
 		exit(1);
