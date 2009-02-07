@@ -25,7 +25,6 @@
 #include <openssl/md5.h>
 #include <glib.h>
 #include <pcre.h>
-#include <sqlite3.h>
 #include <stdbool.h>
 #include <httputil.h>
 #include <elist.h>
@@ -57,21 +56,6 @@ enum errcode {
 	NoSuchKey,
 	PreconditionFailed,
 	SignatureDoesNotMatch,
-};
-
-enum sql_stmt_indices {
-	st_begin,
-	st_commit,
-	st_rollback,
-	st_bucket_objects,
-	st_add_obj,
-	st_del_obj,
-	st_add_header,
-	st_del_headers,
-	st_headers,
-	st_object,
-
-	st_last = st_object
 };
 
 struct client;
@@ -236,13 +220,6 @@ extern void md5str(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
 
-extern sqlite3 *sqldb;
-extern sqlite3_stmt *prep_stmts[];
-extern bool sql_begin(void);
-extern bool sql_commit(void);
-extern bool sql_rollback(void);
-extern void sql_done(void);
-extern void sql_init(void);
 extern void tdb_done(void);
 extern void tdb_init(void);
 

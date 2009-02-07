@@ -5,12 +5,9 @@ TDBDIR=$DATADIR/tdb
 
 mkdir -p $TDBDIR
 
-rm -f $DATADIR/master.db
-sqlite3 $DATADIR/master.db < $top_srcdir/mk-tabledb.sql
-
 cat $top_srcdir/test/users.data | ../server/tdbadm -u -t $TDBDIR
 
-if [ ! -f $DATADIR/master.db ]
+if [ ! -f $TDBDIR/passwd ]
 then
 	rm -rf $DATADIR
 	echo "test database not found."

@@ -33,44 +33,9 @@
 #include <stdio.h>
 #include <openssl/hmac.h>
 #include <glib.h>
-#include <sqlite3.h>
 
 #include "tabled.h"
 
-static const char *sql_stmt_text[] = {
-	[st_begin] =
-	"begin transaction",
-
-	[st_commit] =
-	"commit transaction",
-
-	[st_rollback] =
-	"rollback transaction",
-
-	[st_bucket_objects] =
-	"select * from objects where bucket = ?",
-
-	[st_add_obj] =
-	"insert into objects values (?, ?, ?, ?, ?)",
-
-	[st_del_obj] =
-	"delete from objects where bucket = ? and key = ?",
-
-	[st_object] =
-	"select * from objects where bucket = ? and key = ?",
-
-	[st_add_header] =
-	"insert into headers values (?, ?, ?, ?)",
-
-	[st_del_headers] =
-	"delete from headers where bucket = ? and key = ?",
-
-	[st_headers] =
-	"select header, header_val from headers where bucket = ? and key = ?",
-};
-
-sqlite3_stmt *prep_stmts[st_last + 1] = { NULL, };
-sqlite3 *sqldb = NULL;
 struct tabledb tdb;
 
 size_t strlist_len(GList *l)
@@ -195,55 +160,6 @@ void md5str(const unsigned char *digest, char *outstr)
 	}
 
 	outstr[MD5_DIGEST_LENGTH * 2] = 0;
-}
-
-bool sql_begin(void)
-{
-	int rc = sqlite3_step(prep_stmts[st_begin]);
-	sqlite3_reset(prep_stmts[st_begin]);
-	return (rc == SQLITE_DONE);
-}
-
-bool sql_commit(void)
-{
-	int rc = sqlite3_step(prep_stmts[st_commit]);
-	sqlite3_reset(prep_stmts[st_commit]);
-	return (rc == SQLITE_DONE);
-}
-
-bool sql_rollback(void)
-{
-	int rc = sqlite3_step(prep_stmts[st_rollback]);
-	sqlite3_reset(prep_stmts[st_rollback]);
-	return (rc == SQLITE_DONE);
-}
-
-void sql_init(void)
-{
-	char db_fn[PATH_MAX + 1];
-	unsigned int i;
-	int rc;
-
-	sprintf(db_fn, "%s/master.db", tabled_srv.data_dir);
-
-	rc = sqlite3_open(db_fn, &sqldb);
-	if (rc != SQLITE_OK) {
-		syslog(LOG_ERR, "sqlite3_open failed");
-		exit(1);
-	}
-
-	for (i = 0; i <= st_last; i++) {
-		const char *dummy;
-
-		rc = sqlite3_prepare_v2(sqldb, sql_stmt_text[i], -1,
-					&prep_stmts[i], &dummy);
-		g_assert(rc == SQLITE_OK);
-	}
-}
-
-void sql_done(void)
-{
-	sqlite3_close(sqldb);
 }
 
 void tdb_init(void)

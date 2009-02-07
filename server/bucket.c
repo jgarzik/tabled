@@ -31,7 +31,6 @@
 #include <errno.h>
 #include <glib.h>
 #include <pcre.h>
-#include <sqlite3.h>
 #include <alloca.h>
 #include "tabled.h"
 
@@ -339,44 +338,63 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 {
 	char *hdr, timestr[64];
 	enum errcode err = InternalError;
-	sqlite3_stmt *stmt;
 	int rc;
 	struct db_bucket_ent *ent;
 	DB_ENV *dbenv = tdb.env;
 	DB_TXN *txn = NULL;
 	DB *buckets = tdb.buckets;
 	DB *acls = tdb.acls;
+	DB *objs = tdb.objs;
+	DBC *cur = NULL;
 	DBT key, val;
-	char aclbuf[sizeof(struct db_acl_key) + 32];
-	struct db_acl_key *acl_key = (struct db_acl_key *) &aclbuf;
+	char structbuf[sizeof(struct db_acl_key) + 32];
+	struct db_acl_key *acl_key = (struct db_acl_key *) &structbuf;
+	struct db_obj_key *obj_key = (struct db_obj_key *) &structbuf;
 
 	if (!user)
 		return cli_err(cli, AccessDenied);
-
-	/* SQL begin trans */
-	if (!sql_begin())
-		return cli_err(cli, InternalError);
-
-	/* verify that bucket is empty */
-	stmt = prep_stmts[st_bucket_objects];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc == SQLITE_ROW) {
-		err = BucketNotEmpty;
-		sql_rollback();
-		return cli_err(cli, err);
-	}
-
-	/* SQL commit */
-	if (!sql_commit())
-		return cli_err(cli, InternalError);
 
 	/* open transaction */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out;
+	}
+
+	/* search for (bucket, *) in object database, to see if
+	 * any objects associated with this bucket exist
+	 */
+	rc = objs->cursor(objs, txn, &cur, 0);
+	if (rc) {
+		objs->err(objs, rc, "objs->cursor");
+		goto err_out;
+	}
+
+	memset(&structbuf, 0, sizeof(structbuf));
+	strncpy(obj_key->bucket, bucket, sizeof(obj_key->bucket));
+	obj_key->key[0] = 0;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = obj_key;
+	key.size = sizeof(*obj_key) + strlen(obj_key->key) + 1;
+
+	rc = cur->get(cur, &key, &val, DB_SET_RANGE);
+
+	if (rc == 0) {
+		struct db_obj_key *newkey = key.data;
+
+		if (!strcmp(newkey->bucket, bucket)) {
+			cur->close(cur);
+			err = BucketNotEmpty;
+			goto err_out;
+		}
+	}
+
+	rc = cur->close(cur);
+	if (rc) {
+		objs->err(objs, rc, "objs->cursor_close");
 		goto err_out;
 	}
 
@@ -409,7 +427,7 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 		goto err_out;
 
 	/* delete bucket ACLs */
-	memset(&aclbuf, 0, sizeof(aclbuf));
+	memset(&structbuf, 0, sizeof(structbuf));
 	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
 	acl_key->key[0] = 0;
 
@@ -576,10 +594,16 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 	GList *content, *tmpl;
 	size_t pfx_len;
 	struct bucket_list_info bli;
-	char *zsql;
-	const char *dummy;
 	bool rcb;
-	sqlite3_stmt *select;
+	DB_ENV *dbenv = tdb.env;
+	DB_TXN *txn = NULL;
+	DB *objs = tdb.objs;
+	DBC *cur = NULL;
+	DBT pkey, pval;
+	struct db_obj_key *obj_key;
+	size_t alloc_len;
+	bool first_loop = true;
+	bool seen_prefix = false;
 
 	/* verify READ access */
 	if (!user || !has_access(user, bucket, NULL, "READ")) {
@@ -605,32 +629,36 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 			maxkeys = i;
 	}
 
-	/* build SQL SELECT statement */
-	zsql = alloca(80 +
-		      (prefix ? strlen(prefix) : 0) +
-		      (marker ? strlen(marker) : 0));
-
-	strcpy(zsql, "select key, name, md5 from objects where bucket = ?");
-	if (marker)
-		strcat(zsql, " and key >= ?");
-	if (prefix)
-		strcat(zsql, " and key glob ?");
-	strcat(zsql, " order by key asc");
-
-	rc = sqlite3_prepare_v2(sqldb, zsql, -1, &select, &dummy);
-	if (rc != SQLITE_OK)
-		goto err_out_param;
-
-	/* exec SQL query */
-	i = 1;
-	sqlite3_bind_text(select, i++, bucket, -1, SQLITE_STATIC);
-	if (marker)
-		sqlite3_bind_text(select, i++, marker, -1, SQLITE_STATIC);
-	if (prefix) {
-		s = alloca(strlen(prefix) + 2);
-		sprintf(s, "%s*", prefix);
-		sqlite3_bind_text(select, i++, s, -1, SQLITE_STATIC);
+	/* open transaction */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out;
 	}
+
+	/* search for (bucket, *) in object database, to see if
+	 * any objects associated with this bucket exist
+	 */
+	rc = objs->cursor(objs, txn, &cur, 0);
+	if (rc) {
+		objs->err(objs, rc, "objs->cursor");
+		goto err_out;
+	}
+
+	alloc_len = sizeof(*obj_key) +
+		    (marker ? strlen(marker) :
+		     prefix ? strlen(prefix) : 0) + 1;
+	obj_key = alloca(alloc_len);
+
+	memset(obj_key, 0, alloc_len);
+	strncpy(obj_key->bucket, bucket, sizeof(obj_key->bucket));
+	strcpy(obj_key->key, marker ? marker : prefix ? prefix : "");
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = obj_key;
+	pkey.size = alloc_len;
 
 	memset(&bli, 0, sizeof(bli));
 	bli.prefix = prefix;
@@ -640,23 +668,67 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 					       free, NULL);
 	bli.maxkeys = maxkeys;
 
-	/* iterate through each returned SQL data row */
+	/* iterate through each returned data row */
 	while (1) {
-		const char *key, *name, *md5;
+		char *key, *name, *md5;
+		int get_flags;
+		struct db_obj_key *tmpkey;
+		struct db_obj_ent *obj;
+		bool have_prefix;
 
-		rc = sqlite3_step(select);
-		if (rc != SQLITE_ROW)
+		if (first_loop) {
+			get_flags = DB_SET_RANGE;
+			first_loop = false;
+		} else
+			get_flags = DB_NEXT;
+
+		rc = cur->get(cur, &pkey, &pval, get_flags);
+		if (rc)
 			break;
 
-		key = (const char *) sqlite3_column_text(select, 0);
-		name = (const char *) sqlite3_column_text(select, 1);
-		md5 = (const char *) sqlite3_column_text(select, 2);
+		tmpkey = pkey.data;
+		obj = pval.data;
+
+		if (strcmp(tmpkey->bucket, bucket))
+			break;
+		if (prefix) {
+			have_prefix = (strncmp(tmpkey->key, prefix,
+					       strlen(prefix)) == 0);
+			if (!have_prefix) {
+				if (!seen_prefix)
+					/* continue searching for
+					 * a record that begins with this
+					 * prefix
+					 */
+					continue;
+				else
+					/* no more records with our prefix */
+					break;
+			}
+
+			seen_prefix = true;
+		}
+
+		key = obj_key->key;
+		name = obj->name;
+		md5 = obj->md5;
 
 		if (!bucket_list_iter(key, name, md5, &bli))
 			break;
 	}
 
-	sqlite3_finalize(select);
+	/* close cursor, transaction */
+	rc = cur->close(cur);
+	if (rc) {
+		objs->err(objs, rc, "objs->cursor close");
+		goto err_out_rb;
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+		goto err_out_param;
+	}
 
 	asprintf(&s,
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -751,6 +823,9 @@ do_next:
 
 	return rcb;
 
+err_out_rb:
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_out_param:
 	g_hash_table_destroy(param);
 err_out:

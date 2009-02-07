@@ -32,52 +32,29 @@
 #include <openssl/md5.h>
 #include "tabled.h"
 
-static bool __object_del(const char *bucket, const char *key)
+static bool __object_del(DB_TXN *txn, struct db_obj_key *okey, size_t okey_len)
 {
-	int rc;
-	sqlite3_stmt *stmt;
-	struct db_acl_key *acl_key;
 	DB *acls = tdb.acls;
+	DB *objs = tdb.objs;
 	DBT pkey;
+	int rc;
 
 	/* delete object metadata */
-	stmt = prep_stmts[st_del_obj];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
+	memset(&pkey, 0, sizeof(pkey));
+	pkey.data = okey;
+	pkey.size = okey_len;
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL st_del_obj failed: %d", rc);
+	rc = objs->del(objs, txn, &pkey, 0);
+	if (rc && rc != DB_NOTFOUND) {
+		objs->err(objs, rc, "objs->del");
 		return false;
 	}
 
-	/* delete object ACLs */
-	acl_key = alloca(sizeof(*acl_key) + strlen(key) + 1);
-	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
-	strcpy(acl_key->key, key);
+	/* delete object ACLs; re-use same key as previous ->del() */
 
-	memset(&pkey, 0, sizeof(pkey));
-	pkey.data = acl_key;
-	pkey.size = sizeof(*acl_key) + strlen(key) + 1;
-
-	rc = acls->del(acls, NULL, &pkey, 0);
+	rc = acls->del(acls, txn, &pkey, 0);
 	if (rc && rc != DB_NOTFOUND) {
 		acls->err(acls, rc, "acls->del");
-		return false;
-	}
-
-	/* delete object headers */
-	stmt = prep_stmts[st_del_headers];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL st_del_headers failed: %d", rc);
 		return false;
 	}
 
@@ -90,44 +67,56 @@ bool object_del(struct client *cli, const char *user,
 	char timestr[64], *hdr, *fn;
 	int rc;
 	enum errcode err = InternalError;
-	const char *basename;
-	sqlite3_stmt *stmt;
-
-	/* begin trans */
-	if (!sql_begin()) {
-		syslog(LOG_ERR, "SQL BEGIN failed in obj-del");
-		return cli_err(cli, InternalError);
-	}
+	size_t alloc_len;
+	DB_ENV *dbenv = tdb.env;
+	DB *objs = tdb.objs;
+	struct db_obj_key *okey;
+	struct db_obj_ent *obj;
+	DBT pkey, pval;
+	DB_TXN *txn = NULL;
 
 	if (!user || !has_access(user, bucket, NULL, "WRITE")) {
 		err = AccessDenied;
-		goto err_out;
+		return cli_err(cli, err);
 	}
+
+	/* begin trans */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		return cli_err(cli, InternalError);
+	}
+
+	alloc_len = sizeof(*okey) + strlen(key) + 1;
+	okey = alloca(alloc_len);
+	strncpy(okey->bucket, bucket, sizeof(okey->bucket));
+	strcpy(okey->key, key);
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = okey;
+	pkey.size = alloc_len;
 
 	/* read existing object info, if any */
-	stmt = prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		sqlite3_reset(stmt);
-		err = NoSuchKey;
-		goto err_out;
+	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			err = NoSuchKey;
+                goto err_out;
 	}
 
+	obj = pval.data;
+
 	/* build data filename, for later use */
-	basename = (const char *) sqlite3_column_text(stmt, 3);
-	fn = alloca(strlen(tabled_srv.data_dir) + strlen(basename) + 2);
-	sprintf(fn, "%s/%s", tabled_srv.data_dir, basename);
+	fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj->name) + 2);
+	sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
 
-	sqlite3_reset(stmt);
-
-	if (!__object_del(bucket, key))
+	if (!__object_del(txn, okey, alloc_len))
 		goto err_out;
 
-	if (!sql_commit()) {
-		syslog(LOG_ERR, "SQL COMMIT failed in obj-del");
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 		return cli_err(cli, InternalError);
 	}
 
@@ -154,7 +143,8 @@ bool object_del(struct client *cli, const char *user,
 	return cli_write_start(cli);
 
 err_out:
-	sql_rollback();
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return cli_err(cli, err);
 }
 
@@ -205,25 +195,19 @@ static bool should_copy_header(const struct http_hdr *hdr)
 	return false;
 }
 
-static bool try_copy_header(const char *bucket, const char *key,
-			    struct http_hdr *hdr)
+static void append_hdr_string(GArray *string_lens, GByteArray *string_data,
+			      const struct http_hdr *hdr)
 {
-	sqlite3_stmt *stmt;
-	int rc;
+	char *s;
+	uint16_t slen;
 
-	if (!should_copy_header(hdr))
-		return true;
+	s = g_strdup_printf("%s: %s\r\n", hdr->key, hdr->val);
+	slen = strlen(s) + 1;
 
-	stmt = prep_stmts[st_add_header];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, hdr->key, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, hdr->val, -1, SQLITE_STATIC);
+	g_array_append_val(string_lens, slen);
+	g_byte_array_append(string_data, (uint8_t *) s, slen);
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	return (rc == SQLITE_DONE) ? true : false;
+	free(s);
 }
 
 static bool object_put_end(struct client *cli)
@@ -233,12 +217,21 @@ static bool object_put_end(struct client *cli)
 	char *type, *hdr, *fn = NULL;
 	int rc, i;
 	enum errcode err = InternalError;
-	sqlite3_stmt *stmt;
 	struct db_acl_ent *ent;
 	struct db_acl_key *acl_key;
+	struct db_obj_ent *obj;
+	size_t alloc_len;
 	DB_ENV *dbenv = tdb.env;
 	DBT pkey, pval;
 	DB *acls = tdb.acls;
+	DB *objs = tdb.objs;
+	struct db_obj_key *okey;
+	DB_TXN *txn = NULL;
+	GByteArray *string_data;
+	GArray *string_lens;
+	uint16_t tmp16;
+	uint32_t n_str;
+	void *mem;
 
 	if (http11(&cli->req))
 		cli->state = evt_recycle;
@@ -277,49 +270,40 @@ static bool object_put_end(struct client *cli)
 		type = NULL;
 
 	/* begin trans */
-	if (!sql_begin()) {
-		syslog(LOG_ERR, "SQL BEGIN failed in put-end");
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		goto err_out;
 	}
 
+	alloc_len = sizeof(*okey) + strlen(cli->out_key) + 1;
+	okey = alloca(alloc_len);
+	strncpy(okey->bucket, cli->out_bucket, sizeof(okey->bucket));
+	strcpy(okey->key, cli->out_key);
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = okey;
+	pkey.size = alloc_len;
+
 	/* read existing object info, if any */
-	stmt = prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, cli->out_bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cli->out_key, -1, SQLITE_STATIC);
+	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
+	if (rc && rc != DB_NOTFOUND)
+                goto err_out_rb;
 
-	rc = sqlite3_step(stmt);
+	/* delete existing object, if it exists;
+	 * remember existing object filename for later unlinking
+	 */
+	if (rc == 0) {
+		obj = pval.data;
 
-	if (rc == SQLITE_ROW) {
 		/* build data filename, for later use */
-		const char *basename = (const char *)
-			sqlite3_column_text(stmt, 3);
-		fn = alloca(strlen(tabled_srv.data_dir) + strlen(basename) + 2);
-		sprintf(fn, "%s/%s", tabled_srv.data_dir, basename);
-
-		sqlite3_reset(stmt);
+		fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj->name) + 2);
+		sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
 
 		/* delete object metadata, ACLs */
-		if (!__object_del(cli->out_bucket, cli->out_key)) {
-			syslog(LOG_ERR, "old-obj(%s) delete failed", fn);
+		if (!__object_del(txn, okey, alloc_len))
 			goto err_out_rb;
-		}
-	} else
-		sqlite3_reset(stmt);
-
-	/* insert object */
-	stmt = prep_stmts[st_add_obj];
-	sqlite3_bind_text(stmt, 1, cli->out_bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cli->out_key, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, md5, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, counter, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 5, cli->out_user, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL INSERT(obj) failed");
-		goto err_out_rb;
 	}
 
 	/* insert object ACL */
@@ -338,34 +322,86 @@ static bool object_put_end(struct client *cli)
 	pval.data = ent;
 	pval.size = sizeof(*ent) + strlen(ent->key) + 1;
 
-	rc = acls->put(acls, NULL, &pkey, &pval, 0);
+	rc = acls->put(acls, txn, &pkey, &pval, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "acls->put");
 		goto err_out_rb;
 	}
 
+	/* alloc areas to collect string lengths, string data */
+	string_data = g_byte_array_sized_new(4096);
+	string_lens = g_array_new(FALSE, FALSE, sizeof(uint16_t));
+	if (!string_data || !string_lens)
+		goto err_out_rb;
+
+	/* add special case first string: object key */
+	tmp16 = strlen(cli->out_key) + 1;
+	g_array_append_val(string_lens, tmp16);
+	g_byte_array_append(string_data, (uint8_t *) cli->out_key, tmp16);
+
 	/* copy select headers */
 	for (i = 0; i < cli->req.n_hdr; i++)
-		if (!try_copy_header(cli->out_bucket, cli->out_key,
-				     &cli->req.hdr[i])) {
-			syslog(LOG_ERR, "SQL INSERT(obj header) failed");
-			goto err_out_rb;
-		}
+		if (should_copy_header(&cli->req.hdr[i]))
+			append_hdr_string(string_lens, string_data,
+					  &cli->req.hdr[i]);
 
 	if (type) {
 		struct http_hdr hdr = { "Content-Type", type };
-		if (!try_copy_header(cli->out_bucket, cli->out_key, &hdr))
-			goto err_out_rb;
+		append_hdr_string(string_lens, string_data, &hdr);
 	}
 
-	/* commit */
-	if (!sql_commit()) {
-		syslog(LOG_ERR, "SQL COMMIT");
+	/* allocate and build object metadata for storage */
+	n_str = string_lens->len;
+	alloc_len = sizeof(*obj) +
+		    (sizeof(uint16_t) * n_str) +
+		    string_data->len;
+	obj = calloc(1, alloc_len);
+	if (!obj)
+		goto err_out_rb;
+
+	/* encode object header */
+	strncpy(obj->name, counter, sizeof(obj->name));
+	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
+	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
+	strncpy(obj->md5, md5, sizeof(obj->md5));
+	obj->n_str = GUINT32_TO_LE(n_str);
+
+	/* encode object string length table */
+	mem = obj;
+	mem += sizeof(struct db_obj_ent);
+	memcpy(mem, string_lens->data, n_str * sizeof(uint16_t));
+	mem += n_str * sizeof(uint16_t);
+
+	/* encode object string data area */
+	memcpy(mem, string_data->data, string_data->len);
+
+	/* re-use acl_key, it is the same as db_obj_key */
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = acl_key;
+	pkey.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
+	pval.data = obj;
+	pval.size = alloc_len;
+
+	/* store object metadata in database */
+	rc = objs->put(objs, txn, &pkey, &pval, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "objs->put");
+		goto err_out_rb;
+	}
+
+	/* commit all these changes (deletions + additions) to database */
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 		goto err_out;
 	}
 
+	/* now that all database manipulation has been a success,
+	 * we can remove the old object (overwritten) data.
+	 */
 	if (fn && (unlink(fn) < 0))
-		syslog(LOG_ERR, "object data(%s) unlink failed: %s",
+		syslog(LOG_ERR, "object data(%s) orphaned: %s",
 		       fn, strerror(errno));
 
 	free(cli->out_fn);
@@ -403,7 +439,8 @@ static bool object_put_end(struct client *cli)
 	return cli_write_start(cli);
 
 err_out_rb:
-	sql_rollback();
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_out:
 	cli_out_end(cli);
 	return cli_err(cli, err);
@@ -587,19 +624,23 @@ err_out_buf:
 bool object_get(struct client *cli, const char *user, const char *bucket,
 		       const char *key, bool want_body)
 {
-	const char *md5, *type, *name;
+	char *md5, *name;
 	char timestr[64], modstr[64], *hdr, *fn, *tmp;
-	int rc;
+	int rc, i;
 	enum errcode err = InternalError;
 	struct stat st;
 	char buf[4096];
 	ssize_t bytes;
-	sqlite3_stmt *stmt, *hdr_stmt;
 	bool access, modified = true;
 	GString *extra_hdr;
-
-	if (!sql_begin())
-		return cli_err(cli, InternalError);
+	size_t alloc_len;
+	DB *objs = tdb.objs;
+	struct db_obj_key *okey;
+	struct db_obj_ent *obj = NULL;
+	DBT pkey, pval;
+	void *p;
+	uint32_t n_str;
+	uint16_t *slenp;
 
 	if (user)
 		access = has_access(user, bucket, key, "READ");
@@ -610,19 +651,29 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 		goto err_out_rb;
 	}
 
-	stmt = prep_stmts[st_object];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
+	alloc_len = sizeof(*okey) + strlen(key) + 1;
+	okey = alloca(alloc_len);
+	strncpy(okey->bucket, bucket, sizeof(okey->bucket));
+	strcpy(okey->key, key);
 
-	rc = sqlite3_step(stmt);
-	if (rc != SQLITE_ROW) {
-		err = NoSuchKey;
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = okey;
+	pkey.size = alloc_len;
+
+	pval.flags = DB_DBT_MALLOC;
+
+	rc = objs->get(objs, NULL, &pkey, &pval, 0);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			err = NoSuchKey;
 		goto err_out_reset;
 	}
 
-	md5 = (const char *) sqlite3_column_text(stmt, 2);
-	name = (const char *) sqlite3_column_text(stmt, 3);
-	type = (const char *) sqlite3_column_text(stmt, 5);
+	obj = p = pval.data;
+
+	md5 = obj->md5;
+	name = obj->name;
 
 	hdr = req_hdr(&cli->req, "if-match");
 	if (hdr && strcmp(md5, hdr)) {
@@ -634,27 +685,27 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 	if (!extra_hdr)
 		goto err_out_reset;
 
-	hdr_stmt = prep_stmts[st_headers];
-	sqlite3_bind_text(hdr_stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(hdr_stmt, 2, key, -1, SQLITE_STATIC);
+	/* get pointer to start of uint16_t array */
+	p += sizeof(struct db_obj_ent);
+	slenp = p;
 
-	while (1) {
-		const char *dbhdr, *dbval;
+	/* set pointer to start of packed string area */
+	n_str = GUINT32_FROM_LE(obj->n_str);
+	p += n_str * sizeof(uint16_t);
 
-		rc = sqlite3_step(hdr_stmt);
-		if (rc != SQLITE_ROW)
-			break;
+	for (i = 0; i < n_str; i++) {
+		char *dbhdr;
 
-		dbhdr = (const char *) sqlite3_column_text(hdr_stmt, 0);
-		dbval = (const char *) sqlite3_column_text(hdr_stmt, 1);
+		dbhdr = p;
+		p += GUINT16_FROM_LE(*slenp);
+		slenp++;
+
+		/* first string is object key; skip */
+		if (i == 0)
+			continue;
 
 		extra_hdr = g_string_append(extra_hdr, dbhdr);
-		extra_hdr = g_string_append(extra_hdr, ": ");
-		extra_hdr = g_string_append(extra_hdr, dbval);
-		extra_hdr = g_string_append(extra_hdr, "\r\n");
 	}
-
-	sqlite3_reset(hdr_stmt);
 
 	if (asprintf(&fn, "%s/%s", tabled_srv.data_dir, name) < 0)
 		goto err_out_str;
@@ -776,9 +827,8 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 		goto err_out_in_end;
 
 start_write:
+	free(obj);
 	g_string_free(extra_hdr, TRUE);
-	sqlite3_reset(prep_stmts[st_object]);
-	sql_commit();
 	return cli_write_start(cli);
 
 err_out_in_end:
@@ -786,9 +836,8 @@ err_out_in_end:
 err_out_str:
 	g_string_free(extra_hdr, TRUE);
 err_out_reset:
-	sqlite3_reset(prep_stmts[st_object]);
 err_out_rb:
-	sql_rollback();
+	free(obj);
 	return cli_err(cli, err);
 }
 

@@ -23,6 +23,26 @@
 #include <stdbool.h>
 #include <db.h>
 
+struct db_obj_key {
+	char		bucket[64];		/* bucket */
+	char		key[0];			/* object key */
+};
+
+struct db_obj_ent {
+	char		name[128];		/* local filename (no dirs) */
+	char		bucket[64];		/* bucket */
+	char		owner[64];		/* object owner */
+	char		md5[32];		/* data checksum */
+	uint32_t	n_str;			/* # attached string pairs */
+
+	/* array of uint16_t
+	   representing string lengths of HTTP headers.
+	   first string length is always (key len) */
+
+	/* packed (unaligned) string data...
+	   the first string is this object's key */
+};
+
 struct db_bucket_ent {
 	char		name[64];		/* bucket name */
 	char		owner[64];		/* bucket owner */
@@ -52,6 +72,7 @@ struct tabledb {
 	DB		*buckets;		/* bucket db */
 	DB		*buckets_idx;		/* buckets owner idx */
 	DB		*acls;			/* acl db */
+	DB		*objs;			/* object metadata db */
 };
 
 

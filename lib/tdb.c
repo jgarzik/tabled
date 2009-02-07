@@ -30,6 +30,7 @@ enum {
 	TDB_PGSZ_BUCKETS	= 1024,	/* db4 buckets database page size */
 	TDB_PGSZ_BUCKETS_IDX	= 1024,	/* db4 buckets_idx database page size */
 	TDB_PGSZ_ACLS		= 1024,	/* db4 acls database page size */
+	TDB_PGSZ_OBJS		= 1024,	/* db4 objects database page size */
 };
 
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
@@ -51,7 +52,7 @@ static int buckets_owner_idx(DB *secondary, const DBT *pkey, const DBT *pdata,
 }
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
-		   unsigned int page_size, unsigned int flags)
+		   unsigned int page_size, DBTYPE dbtype, unsigned int flags)
 {
 	int rc;
 	DB *db;
@@ -79,7 +80,7 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		goto err_out;
 	}
 
-	rc = db->open(db, NULL, name, NULL, DB_HASH,
+	rc = db->open(db, NULL, name, NULL, dbtype,
 		      DB_AUTO_COMMIT | flags, S_IRUSR | S_IWUSR);
 	if (rc) {
 		db->err(db, rc, "db->open");
@@ -156,16 +157,18 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	 * Open databases
 	 */
 
-	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD, flags);
+	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD,
+		     DB_HASH, flags);
 	if (rc)
 		goto err_out;
 
-	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS, flags);
+	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS, 
+		     DB_HASH, flags);
 	if (rc)
 		goto err_out_passwd;
 
 	rc = open_db(dbenv, &tdb->buckets_idx, "buckets_idx",
-		     TDB_PGSZ_BUCKETS_IDX, flags | DB_DUP);
+		     TDB_PGSZ_BUCKETS_IDX, DB_HASH, flags | DB_DUP);
 	if (rc)
 		goto err_out_buckets;
 
@@ -177,12 +180,20 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 		goto err_out_bidx;
 	}
 
-	rc = open_db(dbenv, &tdb->acls, "acls", TDB_PGSZ_ACLS, flags | DB_DUP);
+	rc = open_db(dbenv, &tdb->acls, "acls", TDB_PGSZ_ACLS,
+		     DB_HASH, flags | DB_DUP);
 	if (rc)
 		goto err_out_bidx;
 
+	rc = open_db(dbenv, &tdb->objs, "objs", TDB_PGSZ_OBJS,
+		     DB_BTREE, flags);
+	if (rc)
+		goto err_out_acls;
+
 	return 0;
 
+err_out_acls:
+	tdb->acls->close(tdb->acls, 0);
 err_out_bidx:
 	tdb->buckets_idx->close(tdb->buckets_idx, 0);
 err_out_buckets:
@@ -196,6 +207,7 @@ err_out:
 
 void tdb_close(struct tabledb *tdb)
 {
+	tdb->objs->close(tdb->objs, 0);
 	tdb->acls->close(tdb->acls, 0);
 	tdb->buckets_idx->close(tdb->buckets_idx, 0);
 	tdb->buckets->close(tdb->buckets, 0);
@@ -207,5 +219,6 @@ void tdb_close(struct tabledb *tdb)
 	tdb->buckets = NULL;
 	tdb->buckets_idx = NULL;
 	tdb->acls = NULL;
+	tdb->objs = NULL;
 }
 

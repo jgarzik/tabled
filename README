@@ -5,7 +5,6 @@ This is tabled, the distributed lookup table daemon.
 Current dependencies:
 - GLib 2.x.x
 - pcre
-- sqlite 3.x
 - openssl
 - db4 4.x
 

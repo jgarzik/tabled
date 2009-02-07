@@ -4,5 +4,5 @@
 
 SUBDIRS		= doc lib include server test
 
-EXTRA_DIST	= autogen.sh mk-tabledb.sql TODO
+EXTRA_DIST	= autogen.sh TODO
 

@@ -44,7 +44,6 @@
 #include <glib.h>
 #include <openssl/md5.h>
 #include <openssl/hmac.h>
-#include <sqlite3.h>
 #include <elist.h>
 #include "tabled.h"
 
@@ -1348,7 +1347,6 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	sql_init();
 	tdb_init();
 
 	/* create master epoll fd */
@@ -1369,7 +1367,6 @@ int main (int argc, char *argv[])
 
 	syslog(LOG_INFO, "shutting down");
 
-	sql_done();
 	tdb_done();
 
 	rc = 0;

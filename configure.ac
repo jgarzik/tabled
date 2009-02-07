@@ -44,7 +44,6 @@ dnl Checks for required libraries
 dnl -----------------------------
 AC_CHECK_LIB(pcre, pcre_compile, PCRE_LIBS=-lpcre)
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
-AC_CHECK_LIB(sqlite3, sqlite3_open, SQLITE_LIBS=-lsqlite3)
 AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 	AC_CHECK_LIB(db-4.6, db_create, DB4_LIBS=-ldb-4.6,
 	AC_CHECK_LIB(db-4.5, db_create, DB4_LIBS=-ldb-4.5,
@@ -69,7 +68,6 @@ LIBCURL_CHECK_CONFIG(, 7.10.1, , exit 1)
 
 AC_SUBST(PCRE_LIBS)
 AC_SUBST(CRYPTO_LIBS)
-AC_SUBST(SQLITE_LIBS)
 AC_SUBST(DB4_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
