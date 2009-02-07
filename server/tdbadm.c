@@ -22,18 +22,22 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
 #include <argp.h>
-#include <limits.h>
+#include <glib.h>
 
 #include <tdb.h>
 
 enum various_modes {
 	mode_user		= 1,
 	mode_user_list,
+	mode_bucket_list,
+	mode_acl_list,
+	mode_all_lists,
 };
 
 static int mode_adm;
@@ -46,6 +50,12 @@ const char *argp_program_version = PACKAGE_VERSION;
 static struct argp_option options[] = {
 	{ "users", 'u', NULL, 0,
 	  "User list input (from stdin, to database)" },
+	{ "list-all", 'a', NULL, 0,
+	  "Output all lists (from database, to stdout)" },
+	{ "list-acls", 'A', NULL, 0,
+	  "ACL list output (from database, to stdout)" },
+	{ "list-buckets", 'B', NULL, 0,
+	  "Bucket list output (from database, to stdout)" },
 	{ "list-users", 'U', NULL, 0,
 	  "User list output (from database, to stdout)" },
 	{ "tdb", 't', "DIRECTORY", 0,
@@ -156,6 +166,97 @@ static void do_mode_user(void)
 	tdb_close(&tdb);
 }
 
+static void do_acl_list(void)
+{
+	int rc;
+	DBC *cur = NULL;
+	DBT key, val;
+	unsigned long count = 0;
+	struct db_acl_ent *ent;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	tdb.home = tdb_dir;
+
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
+		     "tdbadm", false))
+		exit(1);
+
+	rc = tdb.acls->cursor(tdb.acls, NULL, &cur, 0);
+	if (rc) {
+		tdb.acls->err(tdb.acls, rc, "cursor create");
+		exit(1);
+	}
+
+	while (1) {
+		rc = cur->get(cur, &key, &val, DB_NEXT);
+		if (rc)
+			break;
+
+		ent = val.data;
+
+		printf("%s\t%s\t%s\t%s\n",
+		       ent->bucket,
+		       ent->grantee,
+		       ent->perm,
+		       ent->key);
+
+		count++;
+	}
+
+	fprintf(stderr, "%lu records\n", count);
+
+	cur->close(cur);
+
+	tdb_close(&tdb);
+}
+
+static void do_bucket_list(void)
+{
+	int rc;
+	DBC *cur = NULL;
+	DBT key, val;
+	unsigned long count = 0;
+	struct db_bucket_ent *ent;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	tdb.home = tdb_dir;
+
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
+		     "tdbadm", false))
+		exit(1);
+
+	rc = tdb.buckets->cursor(tdb.buckets, NULL, &cur, 0);
+	if (rc) {
+		tdb.buckets->err(tdb.buckets, rc, "cursor create");
+		exit(1);
+	}
+
+	while (1) {
+		rc = cur->get(cur, &key, &val, DB_NEXT);
+		if (rc)
+			break;
+
+		ent = val.data;
+
+		printf("%s\t%s\t%llu\n",
+		       ent->name,
+		       ent->owner,
+		       (unsigned long long) GUINT64_FROM_LE(ent->time_create));
+
+		count++;
+	}
+
+	fprintf(stderr, "%lu records\n", count);
+
+	cur->close(cur);
+
+	tdb_close(&tdb);
+}
+
 static void do_user_list(void)
 {
 	int rc;
@@ -183,7 +284,7 @@ static void do_user_list(void)
 		if (rc)
 			break;
 
-		printf("%s:%s\n",
+		printf("%s\t%s\n",
 			(char *) key.data,
 			(char *) val.data);
 		count++;
@@ -201,6 +302,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	struct stat st;
 
 	switch(key) {
+	case 'a':
+		mode_adm = mode_all_lists;
+		break;
+	case 'A':
+		mode_adm = mode_acl_list;
+		break;
+	case 'B':
+		mode_adm = mode_bucket_list;
+		break;
 	case 't':
 		if (stat(arg, &st) < 0) {
 			perror(arg);
@@ -244,6 +354,22 @@ int main(int argc, char *argv[])
 		break;
 	case mode_user_list:
 		do_user_list();
+		break;
+	case mode_bucket_list:
+		do_bucket_list();
+		break;
+	case mode_acl_list:
+		do_acl_list();
+		break;
+	case mode_all_lists:
+		printf("Users:\n");
+		do_user_list();
+
+		printf("\nBuckets:\n");
+		do_bucket_list();
+
+		printf("\nACLs:\n");
+		do_acl_list();
 		break;
 	default:
 		fprintf(stderr, "%s: invalid mode\n", argv[0]);
