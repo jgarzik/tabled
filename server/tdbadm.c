@@ -145,12 +145,6 @@ static void do_mode_user(void)
 	DB_TXN *txn = NULL;
 	int rc;
 
-	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		exit(1);
-
 	rc = tdb.env->txn_begin(tdb.env, NULL, &txn, 0);
 	if (rc) {
 		fprintf(stderr, "txn_begin failed: %d\n", rc);
@@ -165,8 +159,6 @@ static void do_mode_user(void)
 		fprintf(stderr, "txn_commit failed: %d\n", rc);
 		exit(1);
 	}
-
-	tdb_close(&tdb);
 }
 
 static void do_acl_list(void)
@@ -179,12 +171,6 @@ static void do_acl_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
-
-	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		exit(1);
 
 	rc = tdb.acls->cursor(tdb.acls, NULL, &cur, 0);
 	if (rc) {
@@ -213,8 +199,6 @@ static void do_acl_list(void)
 	fprintf(stderr, "%lu records\n", count);
 
 	cur->close(cur);
-
-	tdb_close(&tdb);
 }
 
 static void do_bucket_list(void)
@@ -227,12 +211,6 @@ static void do_bucket_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
-
-	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		exit(1);
 
 	rc = tdb.buckets->cursor(tdb.buckets, NULL, &cur, 0);
 	if (rc) {
@@ -260,8 +238,6 @@ static void do_bucket_list(void)
 	fprintf(stderr, "%lu records\n", count);
 
 	cur->close(cur);
-
-	tdb_close(&tdb);
 }
 
 static void do_user_list(void)
@@ -273,12 +249,6 @@ static void do_user_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
-
-	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		exit(1);
 
 	rc = tdb.passwd->cursor(tdb.passwd, NULL, &cur, 0);
 	if (rc) {
@@ -302,8 +272,6 @@ static void do_user_list(void)
 	fprintf(stderr, "%lu records\n", count);
 
 	cur->close(cur);
-
-	tdb_close(&tdb);
 }
 
 static void print_obj(struct db_obj_ent *obj)
@@ -355,12 +323,6 @@ static void do_obj_list(void)
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
 
-	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		exit(1);
-
 	rc = tdb.objs->cursor(tdb.objs, NULL, &cur, 0);
 	if (rc) {
 		tdb.objs->err(tdb.objs, rc, "cursor create");
@@ -385,8 +347,6 @@ static void do_obj_list(void)
 	fprintf(stderr, "%lu records\n", count);
 
 	cur->close(cur);
-
-	tdb_close(&tdb);
 }
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
@@ -433,6 +393,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 int main(int argc, char *argv[])
 {
 	error_t aprc;
+	int rc = 0;
 
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
@@ -442,6 +403,12 @@ int main(int argc, char *argv[])
 
 	if (!tdb_dir)
 		die("no tdb dir (-t) specified\n");
+
+	tdb.home = tdb_dir;
+
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
+		     "tdbadm", false))
+		return 1;
 
 	switch (mode_adm) {
 	case mode_user:
@@ -474,8 +441,11 @@ int main(int argc, char *argv[])
 		break;
 	default:
 		fprintf(stderr, "%s: invalid mode\n", argv[0]);
-		return 1;
+		rc = 1;
+		break;
 	}
 
-	return 0;
+	tdb_close(&tdb);
+
+	return rc;
 }

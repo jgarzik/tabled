@@ -162,7 +162,7 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	if (rc)
 		goto err_out;
 
-	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS, 
+	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS,
 		     DB_HASH, flags);
 	if (rc)
 		goto err_out_passwd;
