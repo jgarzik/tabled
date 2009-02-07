@@ -37,6 +37,7 @@ enum various_modes {
 	mode_user_list,
 	mode_bucket_list,
 	mode_acl_list,
+	mode_obj_list,
 	mode_all_lists,
 };
 
@@ -56,6 +57,8 @@ static struct argp_option options[] = {
 	  "ACL list output (from database, to stdout)" },
 	{ "list-buckets", 'B', NULL, 0,
 	  "Bucket list output (from database, to stdout)" },
+	{ "list-objects", 'O', NULL, 0,
+	  "Object list output (from database, to stdout)" },
 	{ "list-users", 'U', NULL, 0,
 	  "User list output (from database, to stdout)" },
 	{ "tdb", 't', "DIRECTORY", 0,
@@ -189,6 +192,8 @@ static void do_acl_list(void)
 		exit(1);
 	}
 
+	printf("bucket\tgrantee\tperm\tkey\n");
+
 	while (1) {
 		rc = cur->get(cur, &key, &val, DB_NEXT);
 		if (rc)
@@ -235,6 +240,8 @@ static void do_bucket_list(void)
 		exit(1);
 	}
 
+	printf("name\towner\ttime_created\n");
+
 	while (1) {
 		rc = cur->get(cur, &key, &val, DB_NEXT);
 		if (rc)
@@ -279,6 +286,8 @@ static void do_user_list(void)
 		exit(1);
 	}
 
+	printf("username\tpassword\n");
+
 	while (1) {
 		rc = cur->get(cur, &key, &val, DB_NEXT);
 		if (rc)
@@ -287,6 +296,89 @@ static void do_user_list(void)
 		printf("%s\t%s\n",
 			(char *) key.data,
 			(char *) val.data);
+		count++;
+	}
+
+	fprintf(stderr, "%lu records\n", count);
+
+	cur->close(cur);
+
+	tdb_close(&tdb);
+}
+
+static void print_obj(struct db_obj_ent *obj)
+{
+	uint32_t n_str = GUINT32_FROM_LE(obj->n_str);
+	int i;
+	void *p;
+	uint16_t *slenp;
+	char *dbstr;
+
+	printf("%s\t%s\t%s\t%s\t%u\n",
+		obj->bucket,
+		obj->owner,
+		obj->md5,
+		obj->name,
+		n_str);
+
+	p = obj;
+	p += sizeof(*obj);
+	slenp = p;
+
+	p += n_str * sizeof(uint16_t);
+
+	for (i = 0; i < n_str; i++) {
+		char pfx[16];
+
+		dbstr = p;
+		p += GUINT16_FROM_LE(*slenp);
+		slenp++;
+
+		if (i == 0)
+			strcpy(pfx, "key: ");
+		else
+			sprintf(pfx, "str%d: ", i);
+
+		printf("%s%s\n", pfx, dbstr);
+	}
+
+	printf("====\n");
+}
+
+static void do_obj_list(void)
+{
+	int rc;
+	DBC *cur = NULL;
+	DBT key, val;
+	unsigned long count = 0;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	tdb.home = tdb_dir;
+
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
+		     "tdbadm", false))
+		exit(1);
+
+	rc = tdb.objs->cursor(tdb.objs, NULL, &cur, 0);
+	if (rc) {
+		tdb.objs->err(tdb.objs, rc, "cursor create");
+		exit(1);
+	}
+
+	printf("bucket\towner\tmd5\tfilename\tn_str\n");
+
+	while (1) {
+		struct db_obj_ent *obj;
+
+		rc = cur->get(cur, &key, &val, DB_NEXT);
+		if (rc)
+			break;
+
+		obj = val.data;
+		print_obj(obj);
+
 		count++;
 	}
 
@@ -310,6 +402,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		break;
 	case 'B':
 		mode_adm = mode_bucket_list;
+		break;
+	case 'O':
+		mode_adm = mode_obj_list;
 		break;
 	case 't':
 		if (stat(arg, &st) < 0) {
@@ -361,6 +456,9 @@ int main(int argc, char *argv[])
 	case mode_acl_list:
 		do_acl_list();
 		break;
+	case mode_obj_list:
+		do_obj_list();
+		break;
 	case mode_all_lists:
 		printf("Users:\n");
 		do_user_list();
@@ -370,6 +468,9 @@ int main(int argc, char *argv[])
 
 		printf("\nACLs:\n");
 		do_acl_list();
+
+		printf("\nObjects:\n");
+		do_obj_list();
 		break;
 	default:
 		fprintf(stderr, "%s: invalid mode\n", argv[0]);
