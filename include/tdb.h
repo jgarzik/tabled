@@ -23,12 +23,35 @@
 #include <stdbool.h>
 #include <db.h>
 
+struct db_bucket_ent {
+	char		name[64];		/* bucket name */
+	char		owner[64];		/* bucket owner */
+	uint64_t	time_create;		/* creation timestamp */
+};
+
+struct db_acl_key {
+	char		bucket[64];		/* bucket */
+	char		key[0];			/* object key */
+};
+
+struct db_acl_ent {
+	char		perm[128];		/* perm(s) granted */
+	char		grantee[64];		/* grantee user */
+
+	/* below this comment, the struct intentionally mirrors db_acl_key */
+	char		bucket[64];		/* bucket */
+	char		key[0];			/* object key */
+};
+
 struct tabledb {
 	char		*home;			/* database home dir */
 	char		*key;			/* database AES key */
 
 	DB_ENV		*env;			/* db4 env ptr */
 	DB		*passwd;		/* user/password db */
+	DB		*buckets;		/* bucket db */
+	DB		*buckets_idx;		/* buckets owner idx */
+	DB		*acls;			/* acl db */
 };
 
 

@@ -26,12 +26,28 @@
 #include <tdb.h>
 
 enum {
-	TDB_PGSZ_PASSWD		= 1024,
+	TDB_PGSZ_PASSWD		= 1024,	/* db4 passwd database page size */
+	TDB_PGSZ_BUCKETS	= 1024,	/* db4 buckets database page size */
+	TDB_PGSZ_BUCKETS_IDX	= 1024,	/* db4 buckets_idx database page size */
+	TDB_PGSZ_ACLS		= 1024,	/* db4 acls database page size */
 };
 
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
 {
 	syslog(LOG_WARNING, "%s: %s", errpfx, msg);
+}
+
+static int buckets_owner_idx(DB *secondary, const DBT *pkey, const DBT *pdata,
+			     DBT *key_out)
+{
+	const struct db_bucket_ent *ent = pdata->data;
+
+	memset(key_out, 0, sizeof(*key_out));
+
+	key_out->data = (void *) ent->owner;
+	key_out->size = strlen(ent->owner) + 1;
+
+	return 0;
 }
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
@@ -137,15 +153,42 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	}
 
 	/*
-	 * Open metadata database
+	 * Open databases
 	 */
 
 	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD, flags);
 	if (rc)
 		goto err_out;
 
+	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS, flags);
+	if (rc)
+		goto err_out_passwd;
+
+	rc = open_db(dbenv, &tdb->buckets_idx, "buckets_idx",
+		     TDB_PGSZ_BUCKETS_IDX, flags | DB_DUP);
+	if (rc)
+		goto err_out_buckets;
+
+	/* associate this secondary index with 'buckets' primary db */
+	rc = tdb->buckets->associate(tdb->buckets, NULL, tdb->buckets_idx,
+				     buckets_owner_idx, DB_CREATE);
+	if (rc) {
+		dbenv->err(dbenv, rc, "buckets->associate");
+		goto err_out_bidx;
+	}
+
+	rc = open_db(dbenv, &tdb->acls, "acls", TDB_PGSZ_ACLS, flags | DB_DUP);
+	if (rc)
+		goto err_out_bidx;
+
 	return 0;
 
+err_out_bidx:
+	tdb->buckets_idx->close(tdb->buckets_idx, 0);
+err_out_buckets:
+	tdb->buckets->close(tdb->buckets, 0);
+err_out_passwd:
+	tdb->passwd->close(tdb->passwd, 0);
 err_out:
 	dbenv->close(dbenv, 0);
 	return rc;
@@ -153,10 +196,16 @@ err_out:
 
 void tdb_close(struct tabledb *tdb)
 {
+	tdb->acls->close(tdb->acls, 0);
+	tdb->buckets_idx->close(tdb->buckets_idx, 0);
+	tdb->buckets->close(tdb->buckets, 0);
 	tdb->passwd->close(tdb->passwd, 0);
 	tdb->env->close(tdb->env, 0);
 
 	tdb->env = NULL;
 	tdb->passwd = NULL;
+	tdb->buckets = NULL;
+	tdb->buckets_idx = NULL;
+	tdb->acls = NULL;
 }
 

@@ -34,3 +34,10 @@ system
 
 - request logging (basic, and to a specified bucket)
 
+
+miscellaneous
+=============
+TDB_PGSZ_xxx should be tuned
+	(research: can page sizes differ, among dbs in the same db
+	environment?)
+

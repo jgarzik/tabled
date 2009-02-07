@@ -38,36 +38,82 @@
 bool has_access(const char *user, const char *bucket, const char *key,
 		const char *perm_in)
 {
-	sqlite3_stmt *stmt;
 	int rc;
 	char perm[16];
-	const char *perm_db;
-	bool match;
+	bool match = false;
+	size_t alloc_len, key_len = 0;
+	struct db_acl_key *acl_key;
+	struct db_acl_ent *acl;
+	DB_ENV *dbenv = tdb.env;
+	DB_TXN *txn = NULL;
+	DBT pkey, pval;
+	DBC *cur = NULL;
+	DB *acls = tdb.acls;
+
+	/* alloc ACL key on stack, sized to fit 'key' function arg */
+	alloc_len = sizeof(struct db_acl_key) + 1;
+	if (key) {
+		key_len = strlen(key);
+		alloc_len += key_len;
+	}
+	acl_key = alloca(alloc_len);
+
+	/* fill in search key struct */
+	memset(acl_key, 0, alloc_len);
+	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
+	memcpy(acl_key->key, key, key_len);
+	acl_key->key[key_len] = 0;
 
 	sprintf(perm, "%s,", perm_in);
 
-	if (key)
-		stmt = prep_stmts[st_acl_object];
-	else
-		stmt = prep_stmts[st_acl_bucket];
-
-	sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, bucket, -1, SQLITE_STATIC);
-	if (key)
-		sqlite3_bind_text(stmt, 3, key, -1, SQLITE_STATIC);
-
-	rc = sqlite3_step(stmt);
-
-	if (rc != SQLITE_ROW) {
-		sqlite3_reset(stmt);
+	/* open transaction, search cursor */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		return false;
 	}
 
-	perm_db = (const char *) sqlite3_column_text(stmt, 0);
-	match = (strstr(perm_db, perm) == NULL) ? false : true;
-	sqlite3_reset(stmt);
+	rc = acls->cursor(acls, txn, &cur, 0);
+	if (rc) {
+		acls->err(acls, rc, "acls->cursor");
+		goto err_out;
+	}
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = acl_key;
+	pkey.size = alloc_len;
+
+	/* loop through matching records (if any) */
+	while (!match) {
+		rc = cur->get(cur, &pkey, &pval, DB_NEXT);
+		if (rc)
+			break;
+
+		acl = pval.data;
+
+		if (strncmp(acl->grantee, user, sizeof(acl->grantee)))
+			continue;
+
+		match = (strstr(acl->perm, perm) == NULL) ? false : true;
+	}
+
+	/* close cursor, transaction */
+	rc = cur->close(cur);
+	if (rc)
+		acls->err(acls, rc, "acls->cursor close");
+
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 
 	return match;
+
+err_out:
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+	return false;
 }
 
 bool service_list(struct client *cli, const char *user)
@@ -77,7 +123,11 @@ bool service_list(struct client *cli, const char *user)
 	enum errcode err = InternalError;
 	int rc;
 	bool rcb;
-	sqlite3_stmt *stmt = prep_stmts[st_service_list];
+	DB_TXN *txn = NULL;
+	DBC *cur = NULL;
+	DB_ENV *dbenv = tdb.env;
+	DB *bidx = tdb.buckets_idx;
+	DBT skey, pkey, pval;
 
 	if (asprintf(&s,
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
@@ -94,15 +144,36 @@ bool service_list(struct client *cli, const char *user)
 
 	content = g_list_append(content, s);
 
-	sqlite3_bind_text(stmt, 1, user, -1, SQLITE_STATIC);
+	/* open transaction, search cursor */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out_content;
+	}
 
+	rc = bidx->cursor(bidx, txn, &cur, 0);
+	if (rc) {
+		bidx->err(bidx, rc, "bidx->cursor");
+		goto err_out_content;
+	}
+
+	memset(&skey, 0, sizeof(skey));
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	skey.data = (char *) user;
+	skey.size = strlen(user) + 1;
+
+	/* loop through matching buckets, if any */
 	while (1) {
 		char timestr[64];
+		struct db_bucket_ent *ent;
 
-		rc = sqlite3_step(stmt);
-		if (rc == SQLITE_DONE || rc == SQLITE_BUSY)
+		rc = cur->pget(cur, &skey, &pkey, &pval, DB_NEXT);
+		if (rc)
 			break;
-		g_assert(rc == SQLITE_ROW);
+
+		ent = pval.data;
 
 		if (asprintf(&s,
                         "    <Bucket>\r\n"
@@ -110,16 +181,22 @@ bool service_list(struct client *cli, const char *user)
                         "      <CreationDate>%s</CreationDate>\r\n"
                         "    </Bucket>\r\n",
 
-			     sqlite3_column_text(stmt, 0),
+			     ent->name,
 			     time2str(timestr,
-			     	      sqlite3_column_int64(stmt, 1))) < 0)
+			     	      GUINT64_FROM_LE(ent->time_create))) < 0)
 			goto err_out_content;
 
 		content = g_list_append(content, s);
 	}
 
-	rc = sqlite3_reset(stmt);
-	g_assert(rc == SQLITE_OK);
+	/* close cursor, transaction */
+	rc = cur->close(cur);
+	if (rc)
+		bidx->err(bidx, rc, "bidx->cursor close");
+
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 
 	if (asprintf(&s,
 "  </Buckets>\r\n"
@@ -161,54 +238,75 @@ bool bucket_valid(const char *bucket)
 bool bucket_add(struct client *cli, const char *user, const char *bucket)
 {
 	char *hdr, timestr[64];
+	char aclbuf[sizeof(struct db_acl_ent) + 32];
 	enum errcode err = InternalError;
-	sqlite3_stmt *stmt;
 	int rc;
+	struct db_bucket_ent ent;
+	struct db_acl_ent *acl = (struct db_acl_ent *) &aclbuf;
+	struct db_acl_key *acl_key = (struct db_acl_key *) &acl->bucket;
+	DB *buckets = tdb.buckets;
+	DB *acls = tdb.acls;
+	DB_ENV *dbenv = tdb.env;
+	DB_TXN *txn = NULL;
+	DBT key, val;
 
 	/* begin trans */
-	if (!sql_begin())
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		return cli_err(cli, InternalError);
+	}
 
-	/* check bucket existence */
-	stmt = prep_stmts[st_bucket];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+	memset(&ent, 0, sizeof(ent));
+	strncpy(ent.name, bucket, sizeof(ent.name));
+	strncpy(ent.owner, user, sizeof(ent.owner));
+	ent.time_create = GUINT64_TO_LE(time(NULL));
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-	if (rc == SQLITE_ROW) {
-		err = BucketAlreadyExists;
+	key.data = &ent.name;
+	key.size = strlen(ent.name) + 1;
+
+	val.data = &ent;
+	val.size = sizeof(ent);
+
+	/* attempt to insert new bucket; will fail if it already exists */
+	rc = buckets->put(buckets, txn, &key, &val, DB_NOOVERWRITE);
+	if (rc) {
+		if (rc == DB_KEYEXIST)
+			err = BucketAlreadyExists;
+		else
+			buckets->err(buckets, rc, "buckets->put");
 		goto err_out;
 	}
 
-	/* insert bucket */
-	stmt = prep_stmts[st_add_bucket];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, user, -1, SQLITE_STATIC);
-	sqlite3_bind_int64(stmt, 3, time(NULL));
-
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE)
-		goto err_out;
-
 	/* insert bucket ACL */
-	stmt = prep_stmts[st_add_acl];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_null(stmt, 2);
-	sqlite3_bind_text(stmt, 3, user, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, "READ,WRITE,READ_ACL,WRITE_ACL,", -1,
-			  SQLITE_STATIC);
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+	memset(&aclbuf, 0, sizeof(aclbuf));
+	strcpy(acl->bucket, bucket);
+	strcpy(acl->grantee, user);
+	strcpy(acl->perm, "READ,WRITE,READ_ACL,WRITE_ACL,");
+	strcpy(acl->key, "");
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
+	key.data = acl_key;
+	key.size = sizeof(struct db_acl_key) + strlen(acl_key->key) + 1;
 
-	if (rc != SQLITE_DONE)
+	val.data = acl;
+	val.size = sizeof(struct db_acl_ent) + strlen(acl->key) + 1;
+
+	rc = acls->put(acls, txn, &key, &val, 0);
+	if (rc) {
+		acls->err(acls, rc, "acls->put");
 		goto err_out;
+	}
 
 	/* commit */
-	if (!sql_commit())
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 		return cli_err(cli, InternalError);
+	}
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d 200 x\r\n"
@@ -232,22 +330,30 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 	return cli_write_start(cli);
 
 err_out:
-	sql_rollback();
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return cli_err(cli, err);
 }
 
 bool bucket_del(struct client *cli, const char *user, const char *bucket)
 {
-	const char *owner;
 	char *hdr, timestr[64];
 	enum errcode err = InternalError;
 	sqlite3_stmt *stmt;
 	int rc;
+	struct db_bucket_ent *ent;
+	DB_ENV *dbenv = tdb.env;
+	DB_TXN *txn = NULL;
+	DB *buckets = tdb.buckets;
+	DB *acls = tdb.acls;
+	DBT key, val;
+	char aclbuf[sizeof(struct db_acl_key) + 32];
+	struct db_acl_key *acl_key = (struct db_acl_key *) &aclbuf;
 
 	if (!user)
 		return cli_err(cli, AccessDenied);
 
-	/* begin trans */
+	/* SQL begin trans */
 	if (!sql_begin())
 		return cli_err(cli, InternalError);
 
@@ -259,51 +365,68 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 
 	if (rc == SQLITE_ROW) {
 		err = BucketNotEmpty;
+		sql_rollback();
+		return cli_err(cli, err);
+	}
+
+	/* SQL commit */
+	if (!sql_commit())
+		return cli_err(cli, InternalError);
+
+	/* open transaction */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		goto err_out;
 	}
 
-	/* verify that bucket exists */
-	stmt = prep_stmts[st_bucket];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	rc = sqlite3_step(stmt);
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+	key.data = (char *) bucket;
+	key.size = strlen(bucket) + 1;
 
-	if (rc != SQLITE_ROW) {
-		sqlite3_reset(stmt);
-		err = NoSuchBucket;
+	/* verify the bucket exists */
+	rc = buckets->get(buckets, txn, &key, &val, 0);
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			err = NoSuchBucket;
+		else
+			buckets->err(buckets, rc, "buckets->get");
 		goto err_out;
 	}
+
+	ent = val.data;
 
 	/* verify that it is the owner who wishes to delete bucket */
-	owner = (const char *) sqlite3_column_text(stmt, 1);
-	rc = strcmp(owner, user);
-	sqlite3_reset(stmt);
-
-	if (rc) {
+	if (strncmp(user, ent->owner, sizeof(ent->owner))) {
 		err = AccessDenied;
 		goto err_out;
 	}
 
 	/* delete bucket */
-	stmt = prep_stmts[st_del_bucket];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
-
-	if (rc != SQLITE_DONE)
+	rc = buckets->del(buckets, txn, &key, 0);
+	if (rc)
 		goto err_out;
 
 	/* delete bucket ACLs */
-	stmt = prep_stmts[st_del_bucket_acl];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
+	memset(&aclbuf, 0, sizeof(aclbuf));
+	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
+	acl_key->key[0] = 0;
 
-	if (rc != SQLITE_DONE)
+	memset(&key, 0, sizeof(key));
+	key.data = acl_key;
+	key.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
+
+	rc = acls->del(acls, txn, &key, 0);
+	if (rc && rc != DB_NOTFOUND)
 		goto err_out;
 
 	/* commit */
-	if (!sql_commit())
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
 		return cli_err(cli, InternalError);
+	}
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d 204 x\r\n"
@@ -325,7 +448,8 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	return cli_write_start(cli);
 
 err_out:
-	sql_rollback();
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return cli_err(cli, err);
 }
 

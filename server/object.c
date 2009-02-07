@@ -36,6 +36,9 @@ static bool __object_del(const char *bucket, const char *key)
 {
 	int rc;
 	sqlite3_stmt *stmt;
+	struct db_acl_key *acl_key;
+	DB *acls = tdb.acls;
+	DBT pkey;
 
 	/* delete object metadata */
 	stmt = prep_stmts[st_del_obj];
@@ -51,15 +54,17 @@ static bool __object_del(const char *bucket, const char *key)
 	}
 
 	/* delete object ACLs */
-	stmt = prep_stmts[st_del_obj_acl];
-	sqlite3_bind_text(stmt, 1, bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, key, -1, SQLITE_STATIC);
+	acl_key = alloca(sizeof(*acl_key) + strlen(key) + 1);
+	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
+	strcpy(acl_key->key, key);
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
+	memset(&pkey, 0, sizeof(pkey));
+	pkey.data = acl_key;
+	pkey.size = sizeof(*acl_key) + strlen(key) + 1;
 
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL st_del_obj_acl failed: %d", rc);
+	rc = acls->del(acls, NULL, &pkey, 0);
+	if (rc && rc != DB_NOTFOUND) {
+		acls->err(acls, rc, "acls->del");
 		return false;
 	}
 
@@ -229,6 +234,11 @@ static bool object_put_end(struct client *cli)
 	int rc, i;
 	enum errcode err = InternalError;
 	sqlite3_stmt *stmt;
+	struct db_acl_ent *ent;
+	struct db_acl_key *acl_key;
+	DB_ENV *dbenv = tdb.env;
+	DBT pkey, pval;
+	DB *acls = tdb.acls;
 
 	if (http11(&cli->req))
 		cli->state = evt_recycle;
@@ -313,18 +323,24 @@ static bool object_put_end(struct client *cli)
 	}
 
 	/* insert object ACL */
-	stmt = prep_stmts[st_add_acl];
-	sqlite3_bind_text(stmt, 1, cli->out_bucket, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 2, cli->out_key, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 3, cli->out_user, -1, SQLITE_STATIC);
-	sqlite3_bind_text(stmt, 4, "READ,WRITE,READ_ACL,WRITE_ACL,", -1,
-			  SQLITE_STATIC);
+	ent = alloca(sizeof(struct db_acl_ent) + strlen(cli->out_key) + 1);
+	acl_key = (struct db_acl_key *) &ent->bucket;
+	strncpy(ent->perm, "READ,WRITE,READ_ACL,WRITE_ACL,", sizeof(ent->perm));
+	strncpy(ent->grantee, cli->out_user, sizeof(ent->grantee));
+	strncpy(ent->bucket, cli->out_bucket, sizeof(ent->bucket));
+	strcpy(ent->key, cli->out_key);
 
-	rc = sqlite3_step(stmt);
-	sqlite3_reset(stmt);
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = acl_key;
+	pkey.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
 
-	if (rc != SQLITE_DONE) {
-		syslog(LOG_ERR, "SQL INSERT(obj acl) failed");
+	pval.data = ent;
+	pval.size = sizeof(*ent) + strlen(ent->key) + 1;
+
+	rc = acls->put(acls, NULL, &pkey, &pval, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "acls->put");
 		goto err_out_rb;
 	}
 

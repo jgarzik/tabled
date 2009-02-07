@@ -47,24 +47,6 @@ static const char *sql_stmt_text[] = {
 	[st_rollback] =
 	"rollback transaction",
 
-	[st_service_list] =
-	"select name, time_create from buckets where owner = ?",
-
-	[st_add_bucket] =
-	"insert into buckets values (?, ?, ?)",
-
-	[st_del_bucket] =
-	"delete from buckets where name = ?",
-
-	[st_del_bucket_acl] =
-	"delete from acls where bucket = ?",
-
-	[st_add_acl] =
-	"insert into acls values (?, ?, ?, ?)",
-
-	[st_bucket] =
-	"select * from buckets where name = ?",
-
 	[st_bucket_objects] =
 	"select * from objects where bucket = ?",
 
@@ -74,17 +56,8 @@ static const char *sql_stmt_text[] = {
 	[st_del_obj] =
 	"delete from objects where bucket = ? and key = ?",
 
-	[st_del_obj_acl] =
-	"delete from acls where bucket = ? and key = ?",
-
 	[st_object] =
 	"select * from objects where bucket = ? and key = ?",
-
-	[st_acl_bucket] =
-	"select perm from acls where grantee = ? and bucket = ? and key isnull",
-
-	[st_acl_object] =
-	"select perm from acls where grantee = ? and bucket = ? and key = ?",
 
 	[st_add_header] =
 	"insert into headers values (?, ?, ?, ?)",

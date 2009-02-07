@@ -698,8 +698,6 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		key.data = user;
 		key.size = strlen(user) + 1;
 
-		val.flags = DB_DBT_MALLOC;
-
 		/* to prevent attacks that validate a username's
 		 * existence, we return the same error regardless
 		 * of whether the user exists or signature does
@@ -720,8 +718,6 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 		req_sign(&cli->req, buck_in_path ? NULL : bucket,
 			 val.data, b64sig);
-
-		free(val.data);
 
 		rc = strncmp(b64sig, auth + captured[4], usiglen);
 
