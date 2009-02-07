@@ -265,7 +265,7 @@ static void cli_free(struct client *cli)
 	req_free(&cli->req);
 
 	if (debugging)
-		syslog(LOG_DEBUG, "client %s ended", cli->addr_host);
+		syslog(LOG_INFO, "client %s ended", cli->addr_host);
 
 	free(cli);
 }
@@ -672,7 +672,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		key = path + 1;
 
 	if (debugging)
-		syslog(LOG_DEBUG, "%s: method %s, path '%s', bucket '%s'",
+		syslog(LOG_INFO, "%s: method %s, path '%s', bucket '%s'",
 		       cli->addr_host, method, path, bucket);
 
 	/* parse Authentication header */
@@ -707,10 +707,12 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		if (rc) {
 			val.data = strdup("");
 
+			if (debugging)
+				syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
 			if (rc != DB_NOTFOUND) {
 				char s[64];
 
-				sprintf(s, "get user '%s'", user);
+				snprintf(s, 64, "get user '%s'", user);
 				tdb.passwd->err(tdb.passwd, rc, s);
 			}
 		}
