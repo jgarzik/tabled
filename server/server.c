@@ -101,17 +101,14 @@ struct server tabled_srv = {
 };
 
 struct compiled_pat patterns[] = {
-	[pat_bucket_name] =
-	{ "^\\w+$", 0, },
-
 	[pat_bucket_host] =
 	{ "^\\s*(\\w+)\\.(\\w.*)$", 0, },
 
-	[pat_bucket_path] =
-	{ "^/(\\w+)(.*)$", 0, },
-
 	[pat_auth] =
 	{ "^AWS (\\w+):(\\S+)", 0, },
+
+	[pat_ipv4_addr] =
+	{ "\\d+\\.\\d+\\.\\d+\\.\\d+" },
 };
 
 static struct {
@@ -653,16 +650,8 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	}
 
 	/* attempt to obtain bucket name from URI path */
-	if (!bucket && pcre_exec(patterns[pat_bucket_path].re, NULL,
-			   req->uri.path, req->uri.path_len,
-			   0, 0, captured, 16) == 3) {
-		bucket = strndup(req->uri.path + captured[2],
-				 captured[3] - captured[2]);
-		buck_in_path = true;
-
-		if ((captured[5] - captured[4]) > 0)
-			path = strndup(req->uri.path + captured[4],
-				       captured[5] - captured[4]);
+	if (!bucket) {
+		buck_in_path = bucket_base(req->uri.path, &bucket, &path);
 	}
 
 	if (!path)
@@ -721,7 +710,6 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			 val.data, b64sig);
 
 		rc = strncmp(b64sig, auth + captured[4], usiglen);
-
 		if (rc) {
 			err = SignatureDoesNotMatch;
 			goto err_out;

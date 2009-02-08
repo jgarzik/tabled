@@ -32,6 +32,7 @@
 #include <glib.h>
 #include <pcre.h>
 #include <alloca.h>
+#include <ctype.h>
 #include "tabled.h"
 
 bool has_access(const char *user, const char *bucket, const char *key,
@@ -218,10 +219,20 @@ err_out:
 	return cli_err(cli, err);
 }
 
+/*
+ * This only implements more general checks and not fanciers restrictions
+ * caused by hostname access, although we limit the size to hostname
+ * compatible 63 just in case. Specifically, dot, underscore, and minus
+ * are allowed (applications use them).
+ *
+ * We also reject IPv4-like names, at least for now. It's unclear if it's
+ * a reasonable restriction. The syntax of hostname access seems to allow it.
+ */
 bool bucket_valid(const char *bucket)
 {
-	int captured[4];
+	int captured[12];
 	size_t len;
+	size_t i;
 
 	if (!bucket)
 		return false;
@@ -230,8 +241,58 @@ bool bucket_valid(const char *bucket)
 	if (len < 1 || len > 63)
 		return false;
 
-	return pcre_exec(patterns[pat_bucket_name].re, NULL,
-			 bucket, len, 0, 0, captured, 4) == 1 ? true : false;
+	if (!islower(bucket[0]) && !isdigit(bucket[0]))
+		return false;
+
+	for (i = 1; i < len; i++) {
+		char c = bucket[i];
+		if (!(islower(c) || isdigit(c) ||
+		    c == '.' || c == '_' || c == '-'))
+			return false;
+	}
+
+	if (pcre_exec(patterns[pat_ipv4_addr].re, NULL,
+			 bucket, len, 0, 0, captured, 12) >= 1)
+		return false;
+
+	return true;
+}
+
+/*
+ * Parse the uri_path and return bucket and path, strndup-ed.
+ * Returns true iff succeeded. Else, bucket and path are unchanged.
+ */
+bool bucket_base(const char *uri_path, char **pbucket, char **ppath)
+{
+	const char *p;
+	char *bucket, *path;
+
+	if (*uri_path != '/')
+		return false;
+	uri_path++;
+
+	if (uri_path[0] == '\0') {
+		bucket = NULL;
+		if ((path = strdup("/")) == NULL)
+			return false;
+	} else if ((p = strchr(uri_path, '/')) == NULL) {
+		if ((bucket = strdup(uri_path)) == NULL)
+			return false;
+		if ((path = strdup("/")) == NULL) {	/* fake slash */
+			free(bucket);
+			return false;
+		}
+	} else {
+		if ((bucket = strndup(uri_path, p - uri_path)) == NULL)
+			return false;
+		if ((path = strdup(p)) == NULL) {	/* include slash */
+			free(bucket);
+			return false;
+		}
+	}
+	*pbucket = bucket;
+	*ppath = path;
+	return true;
 }
 
 bool bucket_add(struct client *cli, const char *user, const char *bucket)
