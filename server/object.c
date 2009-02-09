@@ -478,7 +478,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 			return cli_err(cli, InternalError);
 		}
 
-		MD5_Update(&cli->out_md5, cli->req_ptr, bytes);
+		MD5_Update(&cli->out_md5, p, bytes);
 
 		cli->out_len -= bytes;
 		p += bytes;
