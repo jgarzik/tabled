@@ -32,7 +32,7 @@ struct db_obj_ent {
 	char		name[128];		/* local filename (no dirs) */
 	char		bucket[64];		/* bucket */
 	char		owner[64];		/* object owner */
-	char		md5[32];		/* data checksum */
+	char		md5[40];		/* data checksum */
 	uint32_t	n_str;			/* # attached string pairs */
 
 	/* array of uint16_t
