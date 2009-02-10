@@ -770,7 +770,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 			seen_prefix = true;
 		}
 
-		key = obj_key->key;
+		key = tmpkey->key;
 		name = obj->name;
 		md5 = obj->md5;
 
