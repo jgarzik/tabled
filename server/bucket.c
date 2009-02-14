@@ -774,7 +774,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 		name = obj->name;
 		md5 = obj->md5;
 
-		if (!bucket_list_iter(key, name, md5, &bli))
+		if (bucket_list_iter(key, name, md5, &bli))
 			break;
 	}
 
