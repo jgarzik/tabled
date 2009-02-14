@@ -203,6 +203,24 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+/*
+ * Decide if we're given the root path. No path and empty path count as root.
+ * Canonical "/" is root. Parameters like "/?prefix=foo" mean root.
+ * We probably should account for "/%3Fprefix=foo" too, one day.
+ * Fortunately, we don't support parameters "/&param=bar".
+ * About "//" we haven't decided yet, return non-root for now.
+ */
+static bool pathisroot(const char *path)
+{
+	if (path == NULL || *path == 0)
+		return true;
+	if (*path == '/') {
+		if (path[1] == 0 || path[1] == '?')
+			return true;
+	}
+	return false;
+}
+
 static void term_signal(int signal)
 {
 	server_running = false;
@@ -656,7 +674,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 	if (!path)
 		path = strdup("/");
-	pslash = (strcmp(path, "/") == 0);
+	pslash = pathisroot(path);
 	if ((strlen(path) > 1) && (*path == '/'))
 		key = path + 1;
 
