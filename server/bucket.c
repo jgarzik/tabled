@@ -609,10 +609,13 @@ static bool bucket_list_iter(const char *key, const char *name,
 		if (bli->last_comp && (bli->last_comp_len == comp_len) &&
 		    !memcmp(post, bli->last_comp, comp_len)) {
 			GList *ltmp;
+			int i;
 
-			ltmp = g_list_last(bli->res);
-			free(ltmp->data);
-			bli->res = g_list_delete_link(bli->res, ltmp);
+			for (i = 0; i < 3; i++) {
+				ltmp = g_list_last(bli->res);
+				free(ltmp->data);
+				bli->res = g_list_delete_link(bli->res, ltmp);
+			}
 
 			g_hash_table_insert(bli->common_pfx, cpfx, NULL);
 
@@ -624,6 +627,7 @@ static bool bucket_list_iter(const char *key, const char *name,
 
 		free(cpfx);
 		bli->last_comp = strndup(post, comp_len);
+		bli->last_comp_len = comp_len;
 
 no_component:
 		do { ; } while(0);
@@ -682,7 +686,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 	pfx_len = prefix ? strlen(prefix) : 0;
 
 	marker = g_hash_table_lookup(param, "marker");
-	delim = g_hash_table_lookup(param, "delim");
+	delim = g_hash_table_lookup(param, "delimiter");
 	maxkeys_str = g_hash_table_lookup(param, "maxkeys_str");
 	if (maxkeys_str) {
 		i = atoi(maxkeys_str);
