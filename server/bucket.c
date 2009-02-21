@@ -175,7 +175,7 @@ bool service_list(struct client *cli, const char *user)
 
 		ent = pval.data;
 
-		if (asprintf(&s,
+		s = g_markup_printf_escaped(
                         "    <Bucket>\r\n"
                         "      <Name>%s</Name>\r\n"
                         "      <CreationDate>%s</CreationDate>\r\n"
@@ -183,7 +183,8 @@ bool service_list(struct client *cli, const char *user)
 
 			     ent->name,
 			     time2str(timestr,
-			     	      GUINT64_FROM_LE(ent->time_create))) < 0)
+			     	      GUINT64_FROM_LE(ent->time_create)));
+		if (!s)
 			goto err_out_content;
 
 		content = g_list_append(content, s);

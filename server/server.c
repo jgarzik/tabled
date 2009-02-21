@@ -538,14 +538,15 @@ bool cli_err(struct client *cli, enum errcode code)
 	syslog(LOG_INFO, "client %s error %s",
 	       cli->addr_host, err_info[code].code);
 
-	if (asprintf(&content,
+	content = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<Error>\r\n"
 "  <Code>%s</Code>\r\n"
 "  <Message>%s</Message>\r\n"
 "</Error>\r\n",
 		     err_info[code].code,
-		     err_info[code].msg) < 0)
+		     err_info[code].msg);
+	if (!content)
 		return false;
 
 	if (asprintf(&hdr,
