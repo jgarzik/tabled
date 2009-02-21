@@ -532,41 +532,64 @@ err_out:
 	return cli_err(cli, err);
 }
 
-static void bucket_list_pfx(GList *content, GHashTable *common_pfx)
+/*
+ * It looks obvious that one CommonPrefixes collection includes many
+ * Prefix elements. This is why it's in plural, right? Not so.
+ * The reference implementation lists one key per collection and
+ * by now some applications depend on it (well, Boto self-test does).
+ */
+static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
+   const char *delim)
 {
 	GList *pfx_list, *tmpl;
 	int cpfx_len;
-	char *s;
+	int pfx_len;
+	int delim_len;
+	char *s, *p;
+	const static char optag[] = "  <CommonPrefixes>\r\n";
+	const static char edtag[] = "  </CommonPrefixes>\r\n";
+	const static char pfoptag[] = "    <Prefix>";
+	const static char pfedtag[] = "</Prefix>\r\n";
 
 	pfx_list = g_hash_table_get_keys(common_pfx);
 	if (!pfx_list)
-		return;
+		return content;
 
-	cpfx_len = 40;
+	/* At this point delim cannot be NULL, since we have a list. */
+	delim_len = strlen(delim);
+
+	cpfx_len = 0;
 	tmpl = pfx_list;
 	while (tmpl) {
-		cpfx_len += strlen((char *) tmpl->data) + 30;
+		cpfx_len += sizeof(optag)-1;
+		cpfx_len += sizeof(pfoptag)-1;
+		cpfx_len += strlen((char *) tmpl->data);
+		cpfx_len += delim_len;
+		cpfx_len += sizeof(pfedtag)-1;
+		cpfx_len += sizeof(edtag)-1;
 		tmpl = tmpl->next;
 	}
+	cpfx_len += 1;
 
 	s = malloc(cpfx_len);
-
-	strcpy(s, "  <CommonPrefixes>\r\n");
+	p = s;
 
 	tmpl = pfx_list;
 	while (tmpl) {
-		strcat(s, "    <Prefix>");
-		strcat(s, (char *) tmpl->data);
-		strcat(s, "</Prefix>\r\n");
+		memcpy(p, optag, sizeof(optag)-1);  p += sizeof(optag)-1;
+		memcpy(p, pfoptag, sizeof(pfoptag)-1);  p += sizeof(pfoptag)-1;
+		pfx_len = strlen((char *) tmpl->data);
+		memcpy(p, (char *)tmpl->data, pfx_len);  p += pfx_len;
+		memcpy(p, delim, delim_len);  p += delim_len;
+		memcpy(p, pfedtag, sizeof(pfedtag)-1);  p += sizeof(pfedtag)-1;
+		memcpy(p, edtag, sizeof(edtag)-1);  p += sizeof(edtag)-1;
 		tmpl = tmpl->next;
 	}
+	*p = 0;
 
 	g_list_free(pfx_list);
 
-	strcat(s, "  </CommonPrefixes>\r\n");
-
-	content = g_list_append(content, s);
-
+	return g_list_append(content, s);
 }
 
 struct bucket_list_info {
@@ -590,6 +613,7 @@ static bool bucket_list_iter(const char *key, const char *name,
 		const char *post, *end;
 		char *cpfx;
 		int comp_len;
+		gpointer orig_key, orig_val;
 
 		post = key + bli->pfx_len;
 		end = strstr(post, bli->delim);
@@ -601,7 +625,8 @@ static bool bucket_list_iter(const char *key, const char *name,
 		if (!cpfx)
 			return true;		/* stop traversal */
 
-		if (g_hash_table_lookup(bli->common_pfx, cpfx)) {
+		if (g_hash_table_lookup_extended(bli->common_pfx, cpfx,
+		    &orig_key, &orig_val)) {
 			free(cpfx);
 			return false;		/* continue traversal */
 		}
@@ -611,6 +636,7 @@ static bool bucket_list_iter(const char *key, const char *name,
 			GList *ltmp;
 			int i;
 
+			--bli->n_keys;
 			for (i = 0; i < 3; i++) {
 				ltmp = g_list_last(bli->res);
 				free(ltmp->data);
@@ -632,9 +658,6 @@ static bool bucket_list_iter(const char *key, const char *name,
 no_component:
 		do { ; } while(0);
 
-	} else if (bli->last_comp) {
-		free(bli->last_comp);
-		bli->last_comp = NULL;
 	}
 
 	if (bli->n_keys == bli->maxkeys) {
@@ -646,6 +669,8 @@ no_component:
 	bli->res = g_list_append(bli->res, strdup(key));
 	bli->res = g_list_append(bli->res, strdup(name));
 	bli->res = g_list_append(bli->res, strdup(md5));
+
+	bli->n_keys++;
 
 	return false;		/* continue traversal */
 }
@@ -687,7 +712,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 
 	marker = g_hash_table_lookup(param, "marker");
 	delim = g_hash_table_lookup(param, "delimiter");
-	maxkeys_str = g_hash_table_lookup(param, "maxkeys_str");
+	maxkeys_str = g_hash_table_lookup(param, "max-keys");
 	if (maxkeys_str) {
 		i = atoi(maxkeys_str);
 		if (i > 0 && i < maxkeys)
@@ -711,8 +736,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 	}
 
 	alloc_len = sizeof(*obj_key) +
-		    (marker ? strlen(marker) :
-		     prefix ? strlen(prefix) : 0) + 1;
+		    (marker ? strlen(marker) : pfx_len) + 1;
 	obj_key = alloca(alloc_len);
 
 	memset(obj_key, 0, alloc_len);
@@ -739,7 +763,6 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 		int get_flags;
 		struct db_obj_key *tmpkey;
 		struct db_obj_ent *obj;
-		bool have_prefix;
 
 		if (first_loop) {
 			get_flags = DB_SET_RANGE;
@@ -757,9 +780,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 		if (strcmp(tmpkey->bucket, bucket))
 			break;
 		if (prefix) {
-			have_prefix = (strncmp(tmpkey->key, prefix,
-					       strlen(prefix)) == 0);
-			if (!have_prefix) {
+			if (strncmp(tmpkey->key, prefix, pfx_len) != 0) {
 				if (!seen_prefix)
 					/* continue searching for
 					 * a record that begins with this
@@ -873,7 +894,7 @@ do_next:
 
 	g_list_free(bli.res);
 
-	bucket_list_pfx(content, bli.common_pfx);
+	content = bucket_list_pfx(content, bli.common_pfx, bli.delim);
 
 	s = strdup("</ListBucketResult>\r\n");
 	content = g_list_append(content, s);
