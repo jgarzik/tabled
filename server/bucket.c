@@ -31,7 +31,6 @@
 #include <errno.h>
 #include <glib.h>
 #include <pcre.h>
-#include <alloca.h>
 #include <ctype.h>
 #include "tabled.h"
 
@@ -284,7 +283,7 @@ bool bucket_base(const char *uri_path, char **pbucket, char **ppath)
 			return false;
 		}
 	} else {
-		if ((bucket = strndup(uri_path, p - uri_path)) == NULL)
+		if ((bucket = g_strndup(uri_path, p - uri_path)) == NULL)
 			return false;
 		if ((path = strdup(p)) == NULL) {	/* include slash */
 			free(bucket);
@@ -622,7 +621,7 @@ static bool bucket_list_iter(const char *key, const char *name,
 		if (!comp_len)
 			goto no_component;
 
-		cpfx = strndup(key, bli->pfx_len + comp_len);
+		cpfx = g_strndup(key, bli->pfx_len + comp_len);
 		if (!cpfx)
 			return true;		/* stop traversal */
 
@@ -653,7 +652,7 @@ static bool bucket_list_iter(const char *key, const char *name,
 		}
 
 		free(cpfx);
-		bli->last_comp = strndup(post, comp_len);
+		bli->last_comp = g_strndup(post, comp_len);
 		bli->last_comp_len = comp_len;
 
 no_component:

@@ -21,11 +21,12 @@
 
 
 #include <sys/epoll.h>
+#include <stdbool.h>
+#include <stdlib.h>
 #include <netinet/in.h>
 #include <openssl/md5.h>
 #include <glib.h>
 #include <pcre.h>
-#include <stdbool.h>
 #include <httputil.h>
 #include <elist.h>
 #include <tdb.h>
@@ -154,12 +155,6 @@ struct server_stats {
 	unsigned long		tcp_accept;	/* TCP accepted cxns */
 	unsigned long		max_evt;	/* epoll events max'd out */
 	unsigned long		opt_write;	/* optimistic writes */
-};
-
-struct server_socket {
-	int			fd;
-	struct server_poll	poll;
-	struct epoll_event	evt;
 };
 
 struct server {

@@ -189,7 +189,7 @@ GHashTable *req_query(struct http_req *req)
 		memcpy(qtmp, tmp, vallen);
 		qtmplen = field_unescape(qtmp, vallen);
 
-		val = strndup(qtmp, qtmplen);
+		val = g_strndup(qtmp, qtmplen);
 
 		valskip = vallen;
 		if (end)

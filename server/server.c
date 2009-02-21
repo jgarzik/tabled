@@ -23,6 +23,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -61,6 +62,12 @@ enum {
 	CLI_MAX_WR_IOV		= 32,		/* max iov per writev(2) */
 
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
+};
+
+struct server_socket {
+	int			fd;
+	struct server_poll	poll;
+	struct epoll_event	evt;
 };
 
 static struct argp_option options[] = {
@@ -662,9 +669,9 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		if ((strlen(MY_ENDPOINT) == (captured[5] - captured[4])) &&
 		    (!memcmp(MY_ENDPOINT, host + captured[4],
 		    	     strlen(MY_ENDPOINT)))) {
-			bucket = strndup(host + captured[2],
+			bucket = g_strndup(host + captured[2],
 					 captured[3] - captured[2]);
-			path = strndup(req->uri.path, req->uri.path_len);
+			path = g_strndup(req->uri.path, req->uri.path_len);
 		}
 	}
 
@@ -699,7 +706,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		memset(&key, 0, sizeof(key));
 		memset(&val, 0, sizeof(val));
 
-		user = strndup(auth + captured[2], captured[3] - captured[2]);
+		user = g_strndup(auth + captured[2], captured[3] - captured[2]);
 		usiglen = captured[5] - captured[4];
 
 		key.data = user;
@@ -1023,7 +1030,7 @@ static bool cli_evt_parse_req(struct client *cli, unsigned int events)
 		goto err_out;
 	}
 
-	cli->req.orig_path = strndup(cli->req.uri.path, cli->req.uri.path_len);
+	cli->req.orig_path = g_strndup(cli->req.uri.path, cli->req.uri.path_len);
 
 	cli->req.uri.path_len = field_unescape(cli->req.uri.path,
 					       cli->req.uri.path_len);
