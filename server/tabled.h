@@ -20,13 +20,13 @@
  */
 
 
-#include <sys/epoll.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <openssl/md5.h>
 #include <glib.h>
 #include <pcre.h>
+#include <event.h>
 #include <httputil.h>
 #include <elist.h>
 #include <tdb.h>
@@ -62,19 +62,6 @@ enum errcode {
 struct client;
 struct client_write;
 struct server_socket;
-
-enum server_poll_type {
-	spt_tcp_srv,				/* TCP server */
-	spt_tcp_cli,				/* TCP client */
-};
-
-struct server_poll {
-	enum server_poll_type	poll_type;	/* spt_xxx above */
-	union {
-		struct server_socket	*sock;
-		struct client		*cli;
-	} u;
-};
 
 enum {
 	pat_bucket_host,
@@ -118,10 +105,11 @@ struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
-	struct server_poll	poll;		/* poll info */
-	struct epoll_event	evt;		/* epoll info */
+	struct event		ev;
+	struct event		write_ev;
 
 	struct list_head	write_q;	/* list of async writes */
+	bool			writing;
 
 	unsigned int		req_used;	/* amount of req_buf in use */
 	char			*req_ptr;	/* start of unexamined data */
@@ -153,7 +141,6 @@ struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
 	unsigned long		tcp_accept;	/* TCP accepted cxns */
-	unsigned long		max_evt;	/* epoll events max'd out */
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
@@ -165,8 +152,6 @@ struct server {
 	char			*pid_file;	/* PID file */
 
 	char			*port;		/* bind port */
-
-	int			epoll_fd;	/* epoll descriptor */
 
 	struct database		*db;		/* database handle */
 

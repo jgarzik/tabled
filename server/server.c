@@ -22,7 +22,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
-#include <sys/epoll.h>
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -56,9 +55,6 @@
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
-	TABLED_EPOLL_INIT_SIZE	= 200,		/* passed to epoll_create(2) */
-	TABLED_EPOLL_MAX_EVT	= 100,		/* max events per poll */
-
 	CLI_MAX_WR_IOV		= 32,		/* max iov per writev(2) */
 
 	SFL_FOREGROUND		= (1 << 0),	/* run in foreground */
@@ -66,8 +62,7 @@ enum {
 
 struct server_socket {
 	int			fd;
-	struct server_poll	poll;
-	struct epoll_event	evt;
+	struct event		ev;
 };
 
 static struct argp_option options[] = {
@@ -231,22 +226,23 @@ static bool pathisroot(const char *path)
 static void term_signal(int signal)
 {
 	server_running = false;
+	event_loopbreak();
 }
 
 static void stats_signal(int signal)
 {
 	dump_stats = true;
+	event_loopbreak();
 }
 
 #define X(stat) \
 	syslog(LOG_INFO, "STAT %s %lu", #stat, tabled_srv.stats.stat)
 
-static void log_stats(void)
+static void stats_dump(void)
 {
 	X(poll);
 	X(event);
 	X(tcp_accept);
-	X(max_evt);
 	X(opt_write);
 }
 
@@ -278,9 +274,8 @@ static void cli_free(struct client *cli)
 
 	/* clean up network socket */
 	if (cli->fd >= 0) {
-		if (epoll_ctl(tabled_srv.epoll_fd, EPOLL_CTL_DEL,
-			      cli->fd, NULL) < 0)
-			syslogerr("TCP client epoll_ctl(EPOLL_CTL_DEL)");
+		if (event_del(&cli->ev) < 0)
+			syslog(LOG_WARNING, "TCP client event_del");
 		close(cli->fd);
 	}
 
@@ -304,10 +299,6 @@ static struct client *cli_alloc(void)
 	}
 
 	cli->state = evt_read_req;
-	cli->poll.poll_type = spt_tcp_cli;
-	cli->poll.u.cli = cli;
-	cli->evt.events = EPOLLIN | EPOLLHUP;
-	cli->evt.data.ptr = &cli->poll;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
 	cli->out_fd = -1;
@@ -320,7 +311,7 @@ static struct client *cli_alloc(void)
 static bool cli_evt_dispose(struct client *cli, unsigned int events)
 {
 	/* if write queue is not empty, we should continue to get
-	 * epoll callbacks here until it is
+	 * poll callbacks here until it is
 	 */
 	if (list_empty(&cli->write_q))
 		cli_free(cli);
@@ -414,11 +405,9 @@ do_write:
 
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
-		cli->evt.events &= ~EPOLLOUT;
-		int rrc = epoll_ctl(tabled_srv.epoll_fd, EPOLL_CTL_MOD,
-				    cli->fd, &cli->evt);
-		if (rrc < 0) {
-			syslogerr("cli_writable epoll_ctl(EPOLL_CTL_MOD)");
+		cli->writing = false;
+		if (event_del(&cli->write_ev) < 0) {
+			syslog(LOG_WARNING, "cli_writable event_del");
 			cli->state = evt_dispose;
 		}
 	}
@@ -426,34 +415,31 @@ do_write:
 
 bool cli_write_start(struct client *cli)
 {
-	int rc;
-
 	if (list_empty(&cli->write_q))
-		return true;		/* loop, not epoll */
+		return true;		/* loop, not poll */
 
-	/* if EPOLLOUT already active, nothing further to do */
-	if (cli->evt.events & EPOLLOUT)
-		return false;		/* epoll wait */
+	/* if write-poll already active, nothing further to do */
+	if (cli->writing)
+		return false;		/* poll wait */
 
-	/* attempt optimistic write, in hopes of avoiding epoll,
+	/* attempt optimistic write, in hopes of avoiding poll,
 	 * or at least refill the write buffers so as to not
 	 * get -immediately- called again by the kernel
 	 */
 	cli_writable(cli);
 	if (list_empty(&cli->write_q)) {
 		tabled_srv.stats.opt_write++;
-		return true;		/* loop, not epoll */
+		return true;		/* loop, not poll */
 	}
 
-	cli->evt.events |= EPOLLOUT;
-
-	rc = epoll_ctl(tabled_srv.epoll_fd, EPOLL_CTL_MOD, cli->fd, &cli->evt);
-	if (rc < 0) {
-		syslogerr("cli_write epoll_ctl(EPOLL_CTL_MOD)");
-		return true;		/* loop, not epoll */
+	if (event_add(&cli->write_ev, NULL) < 0) {
+		syslog(LOG_WARNING, "cli_write event_add");
+		return true;		/* loop, not poll */
 	}
 
-	return false;			/* epoll wait */
+	cli->writing = true;
+
+	return false;			/* poll wait */
 }
 
 int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
@@ -1074,26 +1060,29 @@ static cli_evt_func state_funcs[] = {
 	[evt_recycle]		= cli_evt_recycle,
 };
 
-static void tcp_cli_event(unsigned int events, struct client *cli)
+static void tcp_cli_wr_event(int fd, short events, void *userdata)
 {
-	bool loop;
+	struct client *cli = userdata;
 
-	if (events & EPOLLOUT) {
-		events &= ~EPOLLOUT;
-		cli_writable(cli);
-	}
+	cli_writable(cli);
+}
+
+static void tcp_cli_event(int fd, short events, void *userdata)
+{
+	struct client *cli = userdata;
+	bool loop;
 
 	do {
 		loop = state_funcs[cli->state](cli, events);
 	} while (loop);
 }
 
-static void tcp_srv_event(unsigned int events, struct server_socket *sock)
+static void tcp_srv_event(int fd, short events, void *userdata)
 {
+	struct server_socket *sock = userdata;
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
-	int rc;
 
 	/* alloc and init client info */
 	cli = cli_alloc();
@@ -1113,14 +1102,17 @@ static void tcp_srv_event(unsigned int events, struct server_socket *sock)
 
 	tabled_srv.stats.tcp_accept++;
 
-	/* mark non-blocking, for upcoming epoll use */
+	event_set(&cli->ev, cli->fd, EV_READ | EV_PERSIST, tcp_cli_event, cli);
+	event_set(&cli->write_ev, cli->fd, EV_WRITE | EV_PERSIST,
+		  tcp_cli_wr_event, cli);
+
+	/* mark non-blocking, for upcoming poll use */
 	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
 		goto err_out_fd;
 
-	/* add to epoll watchlist */
-	rc = epoll_ctl(tabled_srv.epoll_fd, EPOLL_CTL_ADD, cli->fd, &cli->evt);
-	if (rc < 0) {
-		syslogerr("tcp client epoll_ctl");
+	/* add to poll watchlist */
+	if (event_add(&cli->ev, NULL) < 0) {
+		syslog(LOG_WARNING, "tcp client event_add");
 		goto err_out_fd;
 	}
 
@@ -1219,16 +1211,13 @@ static int net_open(void)
 		}
 
 		sock->fd = fd;
-		sock->poll.poll_type = spt_tcp_srv;
-		sock->poll.u.sock = sock;
-		sock->evt.events = EPOLLIN;
-		sock->evt.data.ptr = &sock->poll;
 
-		rc = epoll_ctl(tabled_srv.epoll_fd, EPOLL_CTL_ADD, fd,
-			       &sock->evt);
-		if (rc < 0) {
-			syslogerr("tcp socket epoll_ctl");
-			rc = -errno;
+		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
+			  tcp_srv_event, sock);
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp socket event_add");
+			rc = -EIO;
 			goto err_out;
 		}
 
@@ -1244,51 +1233,6 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
-}
-
-static void handle_event(unsigned int events, void *event_data)
-{
-	struct server_poll *sp = event_data;
-
-	tabled_srv.stats.event++;
-
-	switch (sp->poll_type) {
-	case spt_tcp_srv:
-		tcp_srv_event(events, sp->u.sock);
-		break;
-	case spt_tcp_cli:
-		tcp_cli_event(events, sp->u.cli);
-		break;
-	}
-}
-
-static void main_loop(void)
-{
-	struct epoll_event evt[TABLED_EPOLL_MAX_EVT];
-	int rc, i;
-
-	while (server_running) {
-		rc = epoll_wait(tabled_srv.epoll_fd, evt, TABLED_EPOLL_MAX_EVT, -1);
-		if (rc < 0) {
-			if (errno == EINTR)
-				continue;
-
-			syslogerr("epoll_wait");
-			return;
-		}
-
-		if (rc == TABLED_EPOLL_MAX_EVT)
-			tabled_srv.stats.max_evt++;
-		tabled_srv.stats.poll++;
-
-		for (i = 0; i < rc; i++)
-			handle_event(evt[i].events, evt[i].data.ptr);
-
-		if (dump_stats) {
-			log_stats();
-			dump_stats = false;
-		}
-	}
 }
 
 static void compile_patterns(void)
@@ -1363,23 +1307,26 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	tdb_init();
+	event_init();
 
-	/* create master epoll fd */
-	tabled_srv.epoll_fd = epoll_create(TABLED_EPOLL_INIT_SIZE);
-	if (tabled_srv.epoll_fd < 0) {
-		syslogerr("epoll_create");
-		goto err_out_pid;
-	}
+	tdb_init();
 
 	/* set up server networking */
 	rc = net_open();
 	if (rc)
-		goto err_out_epoll;
+		goto err_out_pid;
 
 	syslog(LOG_INFO, "initialized");
 
-	main_loop();
+	while (server_running) {
+		event_dispatch();
+
+		if (dump_stats) {
+			dump_stats = false;
+			stats_dump();
+		}
+	}
+
 
 	syslog(LOG_INFO, "shutting down");
 
@@ -1387,8 +1334,6 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-err_out_epoll:
-	close(tabled_srv.epoll_fd);
 err_out_pid:
 	unlink(tabled_srv.pid_file);
 err_out:
