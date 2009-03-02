@@ -1,0 +1,71 @@
+
+This is server internals implementation documentation.
+
+
+The following are the possible states of a TCP client, in the non-blocking TCP
+client state machine found mostly in server/server.c.
+
+evt_read_req          read HTTP request line
+
+	Exit states: evt_parse_req, evt_dispose
+
+
+evt_parse_req         parse HTTP request line
+
+	Exit states: evt_read_req, evt_parse_hdr, evt_dispose
+
+
+evt_read_hdr          read HTTP header line
+
+	Exit states: evt_dispose, evt_parse_hdr, evt_dispose
+
+
+evt_parse_hdr         parse HTTP header line
+
+	Exit states: evt_read_hdr, evt_http_req, evt_dispose
+
+
+evt_http_req          process HTTP request
+
+	Exit states: evt_http_data_in, evt_recycle, evt_dispose
+
+
+evt_http_data_in      incoming non-header HTTP data
+
+	Exit states: evt_recycle, evt_dispose
+
+
+evt_dispose           dispose/close/free client
+
+	Exit states: none
+
+evt_recycle           Get next HTTP 1.1 pipelined request
+
+	Exit states: evt_parse_hdr, evt_read_req
+
+
+
+Normal HTTP request, sequence of states
+-------------------------------------------
+1) evt_read_req
+2) evt_parse_req
+
+3) evt_read_hdr, evt_parse_hdr (repeated for each header)
+	...
+   evt_read_hdr, evt_parse_hdr
+
+4) evt_http_req			(main work happens here)
+
+5) evt_http_data_in (repeated for incoming client data, i.e. HTTP PUT)
+	...
+   evt_http_data_in
+
+6) evt_recycle			(if HTTP 1.1 pipelining)
+	or
+6) evt_dispose			(HTTP 1.0, or Connection: close)
+
+If doing HTTP 1.1 pipelining, evt_recycle merely restarts HTTP parsing
+back at the beginning of the sequence.
+
+
+

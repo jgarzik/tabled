@@ -1,3 +1,3 @@
 
-EXTRA_DIST = setup.txt
+EXTRA_DIST = setup.txt states.txt
 
