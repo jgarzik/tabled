@@ -46,6 +46,81 @@ char *time2str(char *strbuf, time_t time)
 	return strbuf;
 }
 
+/*
+ * Temporary list of headers.
+ */
+struct custom_hdr {
+	char *key;		/* by malloc */
+	char *val;		/* by ref */
+};
+
+struct custom_hdr_vec {
+	int num;
+	struct custom_hdr vec[REQ_MAX_HDR];
+};
+
+static const char amzpfx[] = "x-amz-";
+#define AMZPFX amzpfx
+#define AMZPFXLEN  (sizeof("x-amz-")-1)
+
+static int cust_cmp(const void *p1, const void *p2)
+{
+	struct custom_hdr *h1 = (struct custom_hdr *)p1;
+	struct custom_hdr *h2 = (struct custom_hdr *)p2;
+	return strcmp(h1->key, h2->key);
+}
+
+/*
+ * Create a list of headers for us to iterate.
+ * Preconvert keys to lowercase, sort, but leave duplicates as is.
+ */
+static int cust_init(struct custom_hdr_vec *cv, struct http_req *req)
+{
+	int cnt;
+	int i, j;
+	const char *key;
+	char *ckey;
+	int klen;
+
+	cnt = 0;
+	for (i = 0; i < req->n_hdr; i++) {
+		key = req->hdr[i].key;
+		if (!strncasecmp(AMZPFX, key, AMZPFXLEN)) {
+			klen = strlen(key) - AMZPFXLEN;
+			if ((ckey = malloc(klen+1)) == NULL) {
+				while (cnt-- != 0)
+					free(cv->vec[cnt].key);
+				goto enocore;
+			}
+			for (j = 0; j < klen; j++)
+				ckey[j] = tolower(key[AMZPFXLEN + j]);
+			ckey[j] = 0;
+
+			cv->vec[cnt].key = ckey;
+			cv->vec[cnt].val = req->hdr[i].val;
+			cnt++;
+		}
+	}
+	cv->num = cnt;
+
+	qsort(cv->vec, cv->num, sizeof(struct custom_hdr), cust_cmp);
+	return 0;
+
+ enocore:
+	return -1;
+}
+
+static void cust_fin(struct custom_hdr_vec *cv)
+{
+	int i;
+
+	for (i = 0; i < cv->num; i++) {
+		free(cv->vec[i].key);
+	}
+}
+
+/*
+ */
 int req_hdr_push(struct http_req *req, char *key, char *val)
 {
 	struct http_hdr *hdr;
@@ -87,6 +162,45 @@ static void req_sign_hdr(struct http_req *req, HMAC_CTX *ctx, const char *_hdr)
 	_HMAC_Update(ctx, "\n", 1);
 }
 
+static void req_sign_amz(HMAC_CTX *ctx, struct http_req *req)
+{
+	struct custom_hdr_vec cust;
+	struct custom_hdr *p;
+	struct custom_hdr *prev;
+	int i;
+
+	if (cust_init(&cust, req))
+		return;
+
+	prev = NULL;
+	p = &cust.vec[0];
+	for (i = 0; i < cust.num; i++) {
+		if (prev) {
+			if (!strcmp(prev->key, p->key)) {
+				_HMAC_Update(ctx, ",", 1);
+			} else {
+				_HMAC_Update(ctx, "\n", 1);
+
+				_HMAC_Update(ctx, AMZPFX, AMZPFXLEN);
+				_HMAC_Update(ctx, p->key, strlen(p->key));
+				_HMAC_Update(ctx, ":", 1);
+				prev = p;
+			}
+		} else {
+			_HMAC_Update(ctx, AMZPFX, AMZPFXLEN);
+			_HMAC_Update(ctx, p->key, strlen(p->key));
+			_HMAC_Update(ctx, ":", 1);
+			prev = p;
+		}
+		_HMAC_Update(ctx, p->val, strlen(p->val));
+		p++;
+	}
+	if (prev)
+		_HMAC_Update(ctx, "\n", 1);
+
+	cust_fin(&cust);
+}
+
 static const char *req_query_sign[] = {
 	"acl",
 	"location",
@@ -115,7 +229,7 @@ void req_sign(struct http_req *req, const char *bucket, const char *key,
 	else
 		req_sign_hdr(req, &ctx, "date");
 
-	/* FIXME: canonicalize x-amz-* headers */
+	req_sign_amz(&ctx, req);
 
 	if (bucket) {
 		_HMAC_Update(&ctx, "/", 1);
