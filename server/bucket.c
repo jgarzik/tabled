@@ -539,13 +539,15 @@ err_out:
  * by now some applications depend on it (well, Boto self-test does).
  */
 static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
-   const char *delim)
+   const char *delim0)
 {
 	GList *pfx_list, *tmpl;
 	int cpfx_len;
 	int pfx_len;
 	int delim_len;
 	char *s, *p;
+	char *prefix;
+	char *delim;
 	const static char optag[] = "  <CommonPrefixes>\r\n";
 	const static char edtag[] = "  </CommonPrefixes>\r\n";
 	const static char pfoptag[] = "    <Prefix>";
@@ -555,18 +557,28 @@ static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
 	if (!pfx_list)
 		return content;
 
-	/* At this point delim cannot be NULL, since we have a list. */
+	/* At this point delim0 cannot be NULL, since we have a list. */
+
+	if ((delim = g_markup_escape_text(delim0, -1)) == NULL) {
+		g_list_free(pfx_list);
+		return content;
+	}
 	delim_len = strlen(delim);
 
 	cpfx_len = 0;
 	tmpl = pfx_list;
 	while (tmpl) {
+		prefix = g_markup_escape_text((char *) tmpl->data, -1);
+		pfx_len = strlen(prefix);
+		tmpl->data = prefix;
+
 		cpfx_len += sizeof(optag)-1;
 		cpfx_len += sizeof(pfoptag)-1;
-		cpfx_len += strlen((char *) tmpl->data);
+		cpfx_len += pfx_len;
 		cpfx_len += delim_len;
 		cpfx_len += sizeof(pfedtag)-1;
 		cpfx_len += sizeof(edtag)-1;
+
 		tmpl = tmpl->next;
 	}
 	cpfx_len += 1;
@@ -576,17 +588,23 @@ static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
 
 	tmpl = pfx_list;
 	while (tmpl) {
+		prefix = (char *) tmpl->data;
+		pfx_len = strlen(prefix);
+
 		memcpy(p, optag, sizeof(optag)-1);  p += sizeof(optag)-1;
 		memcpy(p, pfoptag, sizeof(pfoptag)-1);  p += sizeof(pfoptag)-1;
-		pfx_len = strlen((char *) tmpl->data);
-		memcpy(p, (char *)tmpl->data, pfx_len);  p += pfx_len;
+		memcpy(p, prefix, pfx_len);  p += pfx_len;
 		memcpy(p, delim, delim_len);  p += delim_len;
 		memcpy(p, pfedtag, sizeof(pfedtag)-1);  p += sizeof(pfedtag)-1;
 		memcpy(p, edtag, sizeof(edtag)-1);  p += sizeof(edtag)-1;
+
+		free(prefix);
+
 		tmpl = tmpl->next;
 	}
 	*p = 0;
 
+	free(delim);
 	g_list_free(pfx_list);
 
 	return g_list_append(content, s);
