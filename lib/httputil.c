@@ -238,10 +238,15 @@ void req_sign(struct http_req *req, const char *bucket, const char *key,
 
 	_HMAC_Update(&ctx, req->orig_path, strlen(req->orig_path));
 
-	for (i = 0; i < ARRAY_SIZE(req_query_sign); i++)
-		if (!strncasecmp(req->uri.query, req_query_sign[i],
-				 req->uri.query_len))
-			_HMAC_Update(&ctx, req->uri.query, req->uri.query_len);
+	if (req->uri.query_len)
+		for (i = 0; i < ARRAY_SIZE(req_query_sign); i++)
+			if (!strncasecmp(req->uri.query, req_query_sign[i],
+					 req->uri.query_len)) {
+				_HMAC_Update(&ctx, "?", 1);
+				_HMAC_Update(&ctx,
+				    req->uri.query, req->uri.query_len);
+				break;
+			}
 
 	HMAC_Final(&ctx, md, &len);
 	HMAC_CTX_cleanup(&ctx);
