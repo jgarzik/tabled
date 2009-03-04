@@ -84,6 +84,11 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	pkey.data = acl_key;
 	pkey.size = alloc_len;
 
+	/* FIXME: Use of DB_NEXT rather than DB_SET to begin search
+	 * means we iterate through entire db, rather than
+	 * starting at the first matching key.
+	 */
+
 	/* loop through matching records (if any) */
 	while (!match) {
 		rc = cur->get(cur, &pkey, &pval, DB_NEXT);
@@ -162,6 +167,11 @@ bool service_list(struct client *cli, const char *user)
 
 	skey.data = (char *) user;
 	skey.size = strlen(user) + 1;
+
+	/* FIXME: Use of DB_NEXT rather than DB_SET to begin search
+	 * means we iterate through entire db, rather than
+	 * starting at the first matching key.
+	 */
 
 	/* loop through matching buckets, if any */
 	while (1) {
