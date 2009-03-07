@@ -10,3 +10,12 @@ Current dependencies:
 - libevent
 
 See doc/ subdirectory for more information.
+
+Source code repository:
+	git://git.kernel.org/pub/scm/daemon/distsrv/tabled.git
+
+Download directory:
+	http://www.kernel.org/pub/software/network/distsrv/
+		or
+	ftp://ftp.kernel.org/pub/software/network/distsrv/
+

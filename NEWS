@@ -1,3 +1,12 @@
+Version 0.2 - March 7, 2009
+
+- use db4 as backend metadata db
+- use libevent rather than hand-rolled epoll loop
+- build on FreeBSD 7.1
+- explicitly check GPLv2 COPYING into git repo, and distribute
+  in release tarball
+- lots of bug fixes
+
 Version 0.1 - April 6, 2008
 
 - initial version
