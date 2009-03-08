@@ -450,7 +450,7 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	if (!buf || !buflen)
 		return -EINVAL;
 
-	wr = malloc(sizeof(struct client_write));
+	wr = calloc(1, sizeof(struct client_write));
 	if (!wr)
 		return -ENOMEM;
 
@@ -458,6 +458,7 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	wr->len = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
+	INIT_LIST_HEAD(&wr->node);
 	list_add_tail(&wr->node, &cli->write_q);
 
 	return 0;
