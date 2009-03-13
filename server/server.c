@@ -223,6 +223,69 @@ static bool pathisroot(const char *path)
 	return false;
 }
 
+static int authcheck(struct http_req *req, char *extra_bucket,
+    const char *auth, char **puser)
+{
+	char b64sig[64];
+	int usiglen;
+	int captured[16];
+	char *user;
+	DBT key, val;
+	int rc;
+	int err;
+
+	if (pcre_exec(patterns[pat_auth].re, NULL,
+		      auth, strlen(auth), 0, 0, captured, 16) != 3) {
+		err = InvalidArgument;
+		goto err_pat;
+	}
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	user = g_strndup(auth + captured[2], captured[3] - captured[2]);
+	usiglen = captured[5] - captured[4];
+
+	key.data = user;
+	key.size = strlen(user) + 1;
+
+	/* to prevent attacks that validate a username's
+	 * existence, we return the same error regardless
+	 * of whether the user exists or signature does
+	 * not match.
+	 */
+
+	rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
+	if (rc) {
+		val.data = strdup("");
+
+		if (debugging)
+			syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
+		if (rc != DB_NOTFOUND) {
+			char s[64];
+
+			snprintf(s, 64, "get user '%s'", user);
+			tdb.passwd->err(tdb.passwd, rc, s);
+		}
+	}
+
+	req_sign(req, extra_bucket, val.data, b64sig);
+
+	rc = strncmp(b64sig, auth + captured[4], usiglen);
+	if (rc) {
+		err = SignatureDoesNotMatch;
+		goto err_cmp;
+	}
+
+	*puser = user;
+	return 0;
+
+err_cmp:
+	free(user);
+err_pat:
+	return err;
+}
+
 static void term_signal(int signal)
 {
 	server_running = false;
@@ -679,54 +742,10 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 	/* parse Authentication header */
 	if (auth) {
-		char b64sig[64];
-		int usiglen, rc;
-		DBT key, val;
-
-		if (pcre_exec(patterns[pat_auth].re, NULL,
-			      auth, strlen(auth), 0, 0,
-			      captured, 16) != 3) {
-			err = InvalidArgument;
+		err = authcheck(&cli->req, buck_in_path? NULL: bucket, auth,
+				&user);
+		if (err)
 			goto err_out;
-		}
-
-		memset(&key, 0, sizeof(key));
-		memset(&val, 0, sizeof(val));
-
-		user = g_strndup(auth + captured[2], captured[3] - captured[2]);
-		usiglen = captured[5] - captured[4];
-
-		key.data = user;
-		key.size = strlen(user) + 1;
-
-		/* to prevent attacks that validate a username's
-		 * existence, we return the same error regardless
-		 * of whether the user exists or signature does
-		 * not match.
-		 */
-
-		rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
-		if (rc) {
-			val.data = strdup("");
-
-			if (debugging)
-				syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
-			if (rc != DB_NOTFOUND) {
-				char s[64];
-
-				snprintf(s, 64, "get user '%s'", user);
-				tdb.passwd->err(tdb.passwd, rc, s);
-			}
-		}
-
-		req_sign(&cli->req, buck_in_path ? NULL : bucket,
-			 val.data, b64sig);
-
-		rc = strncmp(b64sig, auth + captured[4], usiglen);
-		if (rc) {
-			err = SignatureDoesNotMatch;
-			goto err_out;
-		}
 	}
 
 	/* no matter whether error or not, this is our next state.
