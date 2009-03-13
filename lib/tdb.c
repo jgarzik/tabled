@@ -52,7 +52,8 @@ static int buckets_owner_idx(DB *secondary, const DBT *pkey, const DBT *pdata,
 }
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
-		   unsigned int page_size, DBTYPE dbtype, unsigned int flags)
+		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
+		   unsigned int fset)
 {
 	int rc;
 	DB *db;
@@ -78,6 +79,15 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		db->err(db, rc, "db->set_lorder");
 		rc = -EIO;
 		goto err_out;
+	}
+
+	if (fset) {
+		rc = db->set_flags(db, fset);
+		if (rc) {
+			db->err(db, rc, "db->set_flags");
+			rc = -EIO;
+			goto err_out;
+		}
 	}
 
 	rc = db->open(db, NULL, name, NULL, dbtype,
@@ -158,17 +168,17 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	 */
 
 	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD,
-		     DB_HASH, flags);
+		     DB_HASH, flags, 0);
 	if (rc)
 		goto err_out;
 
 	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS,
-		     DB_HASH, flags);
+		     DB_HASH, flags, 0);
 	if (rc)
 		goto err_out_passwd;
 
 	rc = open_db(dbenv, &tdb->buckets_idx, "buckets_idx",
-		     TDB_PGSZ_BUCKETS_IDX, DB_HASH, flags | DB_DUP);
+		     TDB_PGSZ_BUCKETS_IDX, DB_HASH, flags, DB_DUP);
 	if (rc)
 		goto err_out_buckets;
 
@@ -181,12 +191,12 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	}
 
 	rc = open_db(dbenv, &tdb->acls, "acls", TDB_PGSZ_ACLS,
-		     DB_HASH, flags | DB_DUP);
+		     DB_HASH, flags, DB_DUP);
 	if (rc)
 		goto err_out_bidx;
 
 	rc = open_db(dbenv, &tdb->objs, "objs", TDB_PGSZ_OBJS,
-		     DB_BTREE, flags);
+		     DB_BTREE, flags, 0);
 	if (rc)
 		goto err_out_acls;
 
