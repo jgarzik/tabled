@@ -8,6 +8,7 @@ Current dependencies:
 - openssl
 - db4 4.x
 - libevent
+- libcurl (which may need libssh2)
 
 See doc/ subdirectory for more information.
 
