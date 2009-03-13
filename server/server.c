@@ -257,7 +257,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 
 	rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
 	if (rc) {
-		val.data = strdup("");
+		val.data = "";
 
 		if (debugging)
 			syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
