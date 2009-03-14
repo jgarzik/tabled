@@ -330,7 +330,7 @@ static bool object_put_end(struct client *cli)
 	rc = object_find(txn, cli->out_bucket, cli->out_key);
 	if (rc < 0) {
 		objs->err(objs, rc, "object_find");
-                goto err_out_rb;
+		goto err_out_rb;
 	}
 
 	/* delete existing object, if it exists;
@@ -639,11 +639,11 @@ static bool object_put_acls(struct client *cli, const char *user,
 	rc = object_find(txn, bucket, key);
 	if (rc < 0) {
 		objs->err(objs, rc, "object_find");
-                goto err_out_rb;
+		goto err_out_rb;
 	}
 	if (rc != 0) {
 		err = NoSuchKey;
-                goto err_out_rb;
+		goto err_out_rb;
 	}
 
 	if (!object_del_acls(txn, bucket, key))
