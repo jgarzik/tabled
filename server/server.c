@@ -206,21 +206,41 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 }
 
 /*
- * Decide if we're given the root path. No path and empty path count as root.
+ * Allocate and return key iff path is not root.
+ *
+ * No path and empty path count as root.
  * Canonical "/" is root. Parameters like "/?prefix=foo" mean root.
  * We probably should account for "/%3Fprefix=foo" too, one day.
  * Fortunately, we don't support parameters "/&param=bar".
  * About "//" we haven't decided yet, return non-root for now.
  */
-static bool pathisroot(const char *path)
+static char *pathtokey(const char *path)
 {
-	if (path == NULL || *path == 0)
-		return true;
-	if (*path == '/') {
-		if (path[1] == 0 || path[1] == '?')
-			return true;
-	}
-	return false;
+	const char *end;
+	char *key;
+	int klen;
+
+	if (path == NULL)
+		return NULL;
+
+	end = path;
+	while (*end != 0 && *end != '?')
+		end++;
+
+	if (path == end)
+		return NULL;
+	if (*path != '/')
+		return NULL;
+	path++;
+	if (path == end)
+		return NULL;
+	klen = end - path;
+
+	key = malloc(klen + 1);
+	memcpy(key, path, klen);
+	key[klen] = 0;
+
+	return key;
 }
 
 static int authcheck(struct http_req *req, char *extra_bucket,
@@ -235,7 +255,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 	int err;
 
 	if (pcre_exec(patterns[pat_auth].re, NULL,
-		      auth, strlen(auth), 0, 0, captured, 16) != 3) {
+			      auth, strlen(auth), 0, 0, captured, 16) != 3) {
 		err = InvalidArgument;
 		goto err_pat;
 	}
@@ -271,8 +291,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 
 	req_sign(req, extra_bucket, val.data, b64sig);
 
-	rc = strncmp(b64sig, auth + captured[4], usiglen);
-	if (rc) {
+	if (strncmp(b64sig, auth + captured[4], usiglen) != 0) {
 		err = SignatureDoesNotMatch;
 		goto err_cmp;
 	}
@@ -696,7 +715,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	char *user = NULL;
 	char *key = NULL;
 	char *method = req->method;
-	bool rcb, pslash, buck_in_path = false;
+	bool rcb, buck_in_path = false;
 	bool expect_cont = false;
 	enum errcode err;
 
@@ -732,15 +751,12 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 	if (!path)
 		path = strdup("/");
-	pslash = pathisroot(path);
-	if ((strlen(path) > 1) && (*path == '/'))
-		key = path + 1;
+	key = pathtokey(path);
 
 	if (debugging)
 		syslog(LOG_INFO, "%s: method %s, path '%s', bucket '%s'",
 		       cli->addr_host, method, path, bucket);
 
-	/* parse Authentication header */
 	if (auth) {
 		err = authcheck(&cli->req, buck_in_path? NULL: bucket, auth,
 				&user);
@@ -771,11 +787,11 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	/*
 	 * operations on objects
 	 */
-	else if (bucket && !pslash && !strcmp(method, "HEAD"))
+	else if (bucket && key && !strcmp(method, "HEAD"))
 		rcb = object_get(cli, user, bucket, key, false);
-	else if (bucket && !pslash && !strcmp(method, "GET"))
+	else if (bucket && key && !strcmp(method, "GET"))
 		rcb = object_get(cli, user, bucket, key, true);
-	else if (bucket && !pslash && !strcmp(method, "PUT")) {
+	else if (bucket && key && !strcmp(method, "PUT")) {
 		long content_len;
 
 		if (!content_len_str) {
@@ -787,30 +803,30 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 		rcb = object_put(cli, user, bucket, key, content_len,
 				 expect_cont);
-	} else if (bucket && !pslash && !strcmp(method, "DELETE"))
+	} else if (bucket && key && !strcmp(method, "DELETE"))
 		rcb = object_del(cli, user, bucket, key);
 
 	/*
 	 * operations on buckets
 	 */
-	else if (bucket && pslash && !strcmp(method, "GET")) {
+	else if (bucket && !key && !strcmp(method, "GET")) {
 		rcb = bucket_list(cli, user, bucket);
 	}
-	else if (bucket && pslash && !strcmp(method, "PUT")) {
+	else if (bucket && !key && !strcmp(method, "PUT")) {
 		if (!auth) {
 			err = AccessDenied;
 			goto err_out;
 		}
 		rcb = bucket_add(cli, user, bucket);
 	}
-	else if (bucket && pslash && !strcmp(method, "DELETE")) {
+	else if (bucket && !key && !strcmp(method, "DELETE")) {
 		rcb = bucket_del(cli, user, bucket);
 	}
 
 	/*
 	 * service-wide operations
 	 */
-	else if (!bucket && pslash && !strcmp(method, "GET")) {
+	else if (!bucket && !key && !strcmp(method, "GET")) {
 		if (!auth) {
 			err = AccessDenied;
 			goto err_out;
@@ -818,13 +834,18 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		rcb = service_list(cli, user);
 	}
 
-	else
+	else {
+		if (debugging)
+			syslog(LOG_INFO, "%s bucket %s through (auth %s)",
+			   method, bucket, auth);
 		rcb = cli_err(cli, InvalidURI);
+	}
 
 out:
 	free(bucket);
 	free(path);
 	free(user);
+	free(key);
 	return rcb;
 
 err_out:
