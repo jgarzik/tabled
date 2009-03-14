@@ -844,7 +844,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 		goto err_out_param;
 	}
 
-	asprintf(&s,
+	s = g_markup_printf_escaped(
 "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
 "<ListBucketResult xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
 "  <Name>%s</Name>\r\n"
@@ -858,11 +858,11 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 	content = g_list_append(NULL, s);
 
 	if (prefix) {
-		asprintf(&s, "  <Prefix>%s</Prefix>\n", prefix);
+		s = g_markup_printf_escaped("  <Prefix>%s</Prefix>\n", prefix);
 		content = g_list_append(content, s);
 	}
 	if (marker) {
-		asprintf(&s, "  <Marker>%s</Marker>\n", marker);
+		s = g_markup_printf_escaped("  <Marker>%s</Marker>\n", marker);
 		content = g_list_append(content, s);
 	}
 
@@ -891,7 +891,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 			st.st_size = 0;
 		}
 
-		asprintf(&s,
+		s = g_markup_printf_escaped(
                          "  <Contents>\r\n"
                          "    <Key>%s</Key>\r\n"
                          "    <LastModified>%s</LastModified>\r\n"
