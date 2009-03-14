@@ -196,7 +196,8 @@ bool object_del(struct client *cli, const char *user,
 	return cli_write_start(cli);
 
 err_out:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return cli_err(cli, err);
 }
@@ -327,8 +328,10 @@ static bool object_put_end(struct client *cli)
 	}
 
 	rc = object_find(txn, cli->out_bucket, cli->out_key);
-	if (rc < 0)
+	if (rc < 0) {
+		objs->err(objs, rc, "object_find");
                 goto err_out_rb;
+	}
 
 	/* delete existing object, if it exists;
 	 * remember existing object filename for later unlinking
@@ -467,7 +470,8 @@ static bool object_put_end(struct client *cli)
 	return cli_write_start(cli);
 
 err_out_rb:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_out:
 	cli_out_end(cli);
@@ -598,6 +602,7 @@ static bool object_put_acls(struct client *cli, const char *user,
 	enum ReqACLC canacl;
 	DB_ENV *dbenv = tdb.env;
 	DB_TXN *txn = NULL;
+	DB *objs = tdb.objs;
 	char *hdr;
 	char timestr[64];
 	int rc;
@@ -632,8 +637,10 @@ static bool object_put_acls(struct client *cli, const char *user,
 	}
 
 	rc = object_find(txn, bucket, key);
-	if (rc < 0)
+	if (rc < 0) {
+		objs->err(objs, rc, "object_find");
                 goto err_out_rb;
+	}
 	if (rc != 0) {
 		err = NoSuchKey;
                 goto err_out_rb;
@@ -643,8 +650,10 @@ static bool object_put_acls(struct client *cli, const char *user,
 		goto err_out_rb;
 
 	rc = add_access_canned(txn, bucket, key, user, canacl);
-	if (rc)
+	if (rc) {
+		dbenv->err(dbenv, rc, "add_access_canned");
 		goto err_out_rb;
+	}
 
 	rc = txn->commit(txn, 0);
 	if (rc) {
@@ -675,7 +684,8 @@ static bool object_put_acls(struct client *cli, const char *user,
 	return cli_write_start(cli);
 
 err_out_rb:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_out:
 err_out_parm:

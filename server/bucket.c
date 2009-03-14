@@ -92,7 +92,6 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	/* loop through matching records (if any) */
 	rc = cur->get(cur, &pkey, &pval, DB_SET);
 	while (rc == 0) {
-
 		acl = pval.data;
 
 		if (!strncmp(acl->grantee, user, sizeof(acl->grantee))) {
@@ -102,6 +101,9 @@ bool has_access(const char *user, const char *bucket, const char *key,
 
 		rc = cur->get(cur, &pkey, &pval, DB_NEXT_DUP);
 	}
+
+	if (rc != DB_NOTFOUND)
+		acls->err(acls, rc, "has_access iteration");
 
 	/* close cursor, transaction */
 	rc = cur->close(cur);
@@ -115,13 +117,14 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	return match;
 
 err_out:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return false;
 }
 
-static int add_access_user(DB_TXN *txn,
-    const char *bucket, const char *key, const char *user, const char *perms)
+static int add_access_user(DB_TXN *txn, const char *bucket, const char *key,
+			   const char *user, const char *perms)
 {
 	DB *acls = tdb.acls;
 	int key_len;
@@ -155,8 +158,8 @@ static int add_access_user(DB_TXN *txn,
 	return acls->put(acls, txn, &pkey, &pval, 0);
 }
 
-int add_access_canned(DB_TXN *txn,
-   const char *bucket, const char *key, const char *user, enum ReqACLC canacl)
+int add_access_canned(DB_TXN *txn, const char *bucket, const char *key,
+		      const char *user, enum ReqACLC canacl)
 {
 	int rc;
 
@@ -264,6 +267,9 @@ bool service_list(struct client *cli, const char *user)
 		content = g_list_append(content, s);
 	}
 
+	if (rc != DB_NOTFOUND)
+		bidx->err(bidx, rc, "service_list iter");
+
 	/* close cursor, transaction */
 	rc = cur->close(cur);
 	if (rc)
@@ -333,7 +339,8 @@ bool bucket_valid(const char *bucket)
 	return true;
 }
 
-int bucket_find(DB_TXN *txn, const char *bucket, char *owner, int owner_len)
+static int bucket_find(DB_TXN *txn, const char *bucket, char *owner,
+		       int owner_len)
 {
 	DB *buckets = tdb.buckets;
 	DBT key, val;
@@ -522,7 +529,8 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 	return cli_write_start(cli);
 
 err_out:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_db:
 err_par:
@@ -585,7 +593,8 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 			err = BucketNotEmpty;
 			goto err_out;
 		}
-	}
+	} else if (rc != DB_NOTFOUND)
+		objs->err(objs, rc, "bucket_del empty check");
 
 	rc = cur->close(cur);
 	if (rc) {
@@ -618,8 +627,10 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 
 	/* delete bucket */
 	rc = buckets->del(buckets, txn, &key, 0);
-	if (rc)
+	if (rc) {
+		buckets->err(buckets, rc, "bucket del");
 		goto err_out;
+	}
 
 	/* delete bucket ACLs */
 	memset(&structbuf, 0, sizeof(structbuf));
@@ -631,8 +642,10 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	key.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
 
 	rc = acls->del(acls, txn, &key, 0);
-	if (rc && rc != DB_NOTFOUND)
+	if (rc && rc != DB_NOTFOUND) {
+		acls->err(acls, rc, "acl del");
 		goto err_out;
+	}
 
 	/* commit */
 	rc = txn->commit(txn, 0);
@@ -661,7 +674,8 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	return cli_write_start(cli);
 
 err_out:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return cli_err(cli, err);
 }
@@ -673,7 +687,7 @@ err_out:
  * by now some applications depend on it (well, Boto self-test does).
  */
 static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
-   const char *delim0)
+			      const char *delim0)
 {
 	GList *pfx_list, *tmpl;
 	int cpfx_len;
@@ -828,7 +842,7 @@ no_component:
 }
 
 static bool bucket_list_keys(struct client *cli, const char *user,
-    const char *bucket)
+			     const char *bucket)
 {
 	GHashTable *param;
 	enum errcode err = InternalError;
@@ -924,8 +938,11 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 			get_flags = DB_NEXT;
 
 		rc = cur->get(cur, &pkey, &pval, get_flags);
-		if (rc)
+		if (rc) {
+			if (rc != DB_NOTFOUND)
+				objs->err(objs, rc, "bucket_list_keys iter");
 			break;
+		}
 
 		tmpkey = pkey.data;
 		obj = pval.data;
@@ -1063,7 +1080,8 @@ do_next:
 	return rcb;
 
 err_out_rb:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 err_out_param:
 	g_hash_table_destroy(param);
@@ -1072,7 +1090,7 @@ err_out:
 }
 
 bool access_list(struct client *cli, const char *bucket, const char *key,
-    const char *user)
+		 const char *user)
 {
 	struct macl {
 		char		perm[128];		/* perm(s) granted */
@@ -1126,16 +1144,19 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
 		goto err_out_param;
 	}
-	rc = acls->cursor(acls, txn, &cur, 0);
-	if (rc) {
-		acls->err(acls, rc, "acls->cursor");
-		goto err_out_rb;
-	}
 
 	rc = bucket_find(txn, bucket, &owner[0], sizeof(owner));
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			err = InvalidBucketName;
+		else
+			dbenv->err(dbenv, rc, "bucket_find");
+		goto err_out_rb;
+	}
+
+	rc = acls->cursor(acls, txn, &cur, 0);
+	if (rc) {
+		acls->err(acls, rc, "acls->cursor");
 		goto err_out_rb;
 	}
 
@@ -1172,6 +1193,9 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 
 		res = g_list_append(res, mp);
 	}
+
+	if (rc != DB_NOTFOUND)
+		acls->err(acls, rc, "access_list iteration");
 
 	/* close cursor, transaction */
 	rc = cur->close(cur);
@@ -1251,7 +1275,8 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 	return rcb;
 
 err_out_rb:
-	if (txn->abort(txn))
+	rc = txn->abort(txn);
+	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	for (p = res; p != NULL; p = p->next)
 		free(p->data);
