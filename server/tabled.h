@@ -165,6 +165,10 @@ extern struct tabledb tdb;
 /* bucket.c */
 extern bool has_access(const char *user, const char *bucket, const char *key,
 		const char *perm_in);
+extern int add_access_canned(DB_TXN *txn, const char *bucket, const char *key,
+		const char *user, enum ReqACLC canacl);
+bool access_list(struct client *cli, const char *bucket, const char *key,
+		const char *user);
 extern bool bucket_list(struct client *cli, const char *user, const char *bucket);
 extern bool bucket_del(struct client *cli, const char *user, const char *bucket);
 extern bool bucket_add(struct client *cli, const char *user, const char *bucket);
@@ -173,6 +177,7 @@ extern bool bucket_base(const char *uri_path, char **pbucket, char **ppath);
 extern bool service_list(struct client *cli, const char *user);
 
 /* object.c */
+extern bool object_del_acls(DB_TXN *txn, const char *bucket, const char *key);
 extern bool object_del(struct client *cli, const char *user,
 			const char *bucket, const char *key);
 extern bool object_put(struct client *cli, const char *user, const char *bucket,

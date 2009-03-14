@@ -63,6 +63,8 @@ struct db_acl_ent {
 	char		key[0];			/* object key */
 };
 
+#define DB_ACL_ANON	"*"
+
 struct tabledb {
 	char		*home;			/* database home dir */
 	char		*key;			/* database AES key */

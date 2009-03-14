@@ -32,14 +32,47 @@
 #include <openssl/md5.h>
 #include "tabled.h"
 
-static bool __object_del(DB_TXN *txn, struct db_obj_key *okey, size_t okey_len)
+static int object_find(DB_TXN *txn, const char *bucket, const char *key)
 {
-	DB *acls = tdb.acls;
 	DB *objs = tdb.objs;
+	struct db_obj_key *okey;
+	size_t alloc_len;
+	DBT pkey, pval;
+	int rc;
+
+	alloc_len = sizeof(*okey) + strlen(key) + 1;
+	okey = alloca(alloc_len);
+	strncpy(okey->bucket, bucket, sizeof(okey->bucket));
+	strcpy(okey->key, key);
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = okey;
+	pkey.size = alloc_len;
+
+	/* read existing object info, if any */
+	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
+	if (rc == DB_NOTFOUND)
+		return 1;
+	if (rc)
+		return -1;
+	return 0;
+}
+
+static bool __object_del(DB_TXN *txn, const char *bucket, const char *key)
+{
+	DB *objs = tdb.objs;
+	struct db_obj_key *okey;
+	size_t okey_len;
 	DBT pkey;
 	int rc;
 
 	/* delete object metadata */
+	okey_len = sizeof(*okey) + strlen(key) + 1;
+	okey = alloca(okey_len);
+	strncpy(okey->bucket, bucket, sizeof(okey->bucket));
+	strcpy(okey->key, key);
+
 	memset(&pkey, 0, sizeof(pkey));
 	pkey.data = okey;
 	pkey.size = okey_len;
@@ -50,7 +83,27 @@ static bool __object_del(DB_TXN *txn, struct db_obj_key *okey, size_t okey_len)
 		return false;
 	}
 
-	/* delete object ACLs; re-use same key as previous ->del() */
+	/* delete object ACLs */
+	return object_del_acls(txn, bucket, key);
+}
+
+bool object_del_acls(DB_TXN *txn, const char *bucket, const char *key)
+{
+	DB *acls = tdb.acls;
+	struct db_acl_key *akey;
+	size_t alloc_len;
+	DBT pkey;
+	int rc;
+
+	alloc_len = sizeof(*akey) + strlen(key) + 1;
+	akey = alloca(alloc_len);
+	memset(akey, 0, alloc_len);
+	strncpy(akey->bucket, bucket, sizeof(akey->bucket));
+	strcpy(akey->key, key);
+
+	memset(&pkey, 0, sizeof(pkey));
+	pkey.data = akey;
+	pkey.size = alloc_len;
 
 	rc = acls->del(acls, txn, &pkey, 0);
 	if (rc && rc != DB_NOTFOUND) {
@@ -111,7 +164,7 @@ bool object_del(struct client *cli, const char *user,
 	fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj->name) + 2);
 	sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
 
-	if (!__object_del(txn, okey, alloc_len))
+	if (!__object_del(txn, bucket, key))
 		goto err_out;
 
 	rc = txn->commit(txn, 0);
@@ -217,15 +270,12 @@ static bool object_put_end(struct client *cli)
 	char *type, *hdr, *fn = NULL;
 	int rc, i;
 	enum errcode err = InternalError;
-	struct db_acl_ent *ent;
-	struct db_acl_key *acl_key;
 	struct db_obj_ent *obj;
+	struct db_obj_key *obj_key;
 	size_t alloc_len;
 	DB_ENV *dbenv = tdb.env;
 	DBT pkey, pval;
-	DB *acls = tdb.acls;
 	DB *objs = tdb.objs;
-	struct db_obj_key *okey;
 	DB_TXN *txn = NULL;
 	GByteArray *string_data;
 	GArray *string_lens;
@@ -276,19 +326,8 @@ static bool object_put_end(struct client *cli)
 		goto err_out;
 	}
 
-	alloc_len = sizeof(*okey) + strlen(cli->out_key) + 1;
-	okey = alloca(alloc_len);
-	strncpy(okey->bucket, cli->out_bucket, sizeof(okey->bucket));
-	strcpy(okey->key, cli->out_key);
-
-	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
-	pkey.data = okey;
-	pkey.size = alloc_len;
-
-	/* read existing object info, if any */
-	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
-	if (rc && rc != DB_NOTFOUND)
+	rc = object_find(txn, cli->out_bucket, cli->out_key);
+	if (rc < 0)
                 goto err_out_rb;
 
 	/* delete existing object, if it exists;
@@ -302,27 +341,13 @@ static bool object_put_end(struct client *cli)
 		sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
 
 		/* delete object metadata, ACLs */
-		if (!__object_del(txn, okey, alloc_len))
+		if (!__object_del(txn, cli->out_bucket, cli->out_key))
 			goto err_out_rb;
 	}
 
 	/* insert object ACL */
-	ent = alloca(sizeof(struct db_acl_ent) + strlen(cli->out_key) + 1);
-	acl_key = (struct db_acl_key *) &ent->bucket;
-	strncpy(ent->perm, "READ,WRITE,READ_ACL,WRITE_ACL,", sizeof(ent->perm));
-	strncpy(ent->grantee, cli->out_user, sizeof(ent->grantee));
-	strncpy(ent->bucket, cli->out_bucket, sizeof(ent->bucket));
-	strcpy(ent->key, cli->out_key);
-
-	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
-	pkey.data = acl_key;
-	pkey.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
-
-	pval.data = ent;
-	pval.size = sizeof(*ent) + strlen(ent->key) + 1;
-
-	rc = acls->put(acls, txn, &pkey, &pval, 0);
+	rc = add_access_canned(txn, cli->out_bucket, cli->out_key,
+			      cli->out_user, ACLC_PRIV);
 	if (rc) {
 		dbenv->err(dbenv, rc, "acls->put");
 		goto err_out_rb;
@@ -375,11 +400,14 @@ static bool object_put_end(struct client *cli)
 	/* encode object string data area */
 	memcpy(mem, string_data->data, string_data->len);
 
-	/* re-use acl_key, it is the same as db_obj_key */
+	obj_key = alloca(sizeof(struct db_obj_key) + strlen(cli->out_key) + 1);
+	strncpy(obj_key->bucket, cli->out_bucket, sizeof(obj_key->bucket));
+	strcpy(obj_key->key, cli->out_key);
+
 	memset(&pkey, 0, sizeof(pkey));
 	memset(&pval, 0, sizeof(pval));
-	pkey.data = acl_key;
-	pkey.size = sizeof(*acl_key) + strlen(acl_key->key) + 1;
+	pkey.data = obj_key;
+	pkey.size = sizeof(*obj_key) + strlen(obj_key->key) + 1;
 	pval.data = obj;
 	pval.size = alloc_len;
 
@@ -491,7 +519,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	return (avail == sizeof(buf)) ? true : false;
 }
 
-bool object_put(struct client *cli, const char *user, const char *bucket,
+bool object_put_body(struct client *cli, const char *user, const char *bucket,
 		const char *key, long content_len, bool expect_cont)
 {
 	char *fn = NULL;
@@ -563,6 +591,121 @@ bool object_put(struct client *cli, const char *user, const char *bucket,
 	return true;
 }
 
+static bool object_put_acls(struct client *cli, const char *user,
+    const char *bucket, const char *key, long content_len, bool expect_cont)
+{
+	enum errcode err = InternalError;
+	enum ReqACLC canacl;
+	DB_ENV *dbenv = tdb.env;
+	DB_TXN *txn = NULL;
+	char *hdr;
+	char timestr[64];
+	int rc;
+
+	if (content_len) {
+		/*
+		 * FIXME We should support this, but parsing XML is a pain.
+		 * We only do canned ACPs for now.
+		 */
+		return cli_err(cli, InvalidArgument);
+	}
+
+	if (!user || !has_access(user, bucket, key, "WRITE_ACP"))
+		return cli_err(cli, AccessDenied);
+
+	if ((rc = req_acl_canned(&cli->req)) == ACLCNUM) {
+		err = InvalidArgument;
+		goto err_out_parm;
+	}
+	canacl = (rc == -1)? ACLC_PRIV: rc;
+
+	if (http11(&cli->req))
+		cli->state = evt_recycle;
+	else
+		cli->state = evt_dispose;
+
+	/* begin trans */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out;
+	}
+
+	rc = object_find(txn, bucket, key);
+	if (rc < 0)
+                goto err_out_rb;
+	if (rc != 0) {
+		err = NoSuchKey;
+                goto err_out_rb;
+	}
+
+	if (!object_del_acls(txn, bucket, key))
+		goto err_out_rb;
+
+	rc = add_access_canned(txn, bucket, key, user, canacl);
+	if (rc)
+		goto err_out_rb;
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+		goto err_out;
+	}
+
+	if (asprintf(&hdr,
+"HTTP/%d.%d 200 x\r\n"
+"Content-Length: 0\r\n"
+"Date: %s\r\n"
+"Server: " PACKAGE_STRING "\r\n"
+"\r\n",
+		     cli->req.major,
+		     cli->req.minor,
+		     time2str(timestr, time(NULL))) < 0) {
+		/* FIXME: cleanup failure */
+		syslog(LOG_ERR, "OOM in object_put_end");
+		return cli_err(cli, InternalError);
+	}
+
+	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	if (rc) {
+		free(hdr);
+		return true;
+	}
+
+	return cli_write_start(cli);
+
+err_out_rb:
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+err_out:
+err_out_parm:
+	return cli_err(cli, err);
+}
+
+bool object_put(struct client *cli, const char *user, const char *bucket,
+		const char *key, long content_len, bool expect_cont)
+{
+	bool setacl;
+
+	setacl = false;
+	if (cli->req.uri.query_len) {
+		switch (req_is_query(&cli->req)) {
+		case URIQ_ACL:
+			setacl = true;
+			break;
+		default:
+			return cli_err(cli, InvalidURI);
+		}
+	}
+
+	if (setacl)
+		return object_put_acls(cli, user, bucket, key,
+				       content_len, expect_cont);
+	else
+		return object_put_body(cli, user, bucket, key,
+				       content_len, expect_cont);
+}
+
 void cli_in_end(struct client *cli)
 {
 	if (!cli)
@@ -621,7 +764,7 @@ err_out_buf:
 	return false;
 }
 
-bool object_get(struct client *cli, const char *user, const char *bucket,
+bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		       const char *key, bool want_body)
 {
 	char *md5, *name;
@@ -642,14 +785,13 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 	uint32_t n_str;
 	uint16_t *slenp;
 
-	if (user)
-		access = has_access(user, bucket, key, "READ");
-	else
-		access = has_access("ANONYMOUS", bucket, key, "READ");
+#if 0 /* FIXME look it up in the docs if we need access to bucket */
+	access = has_access(user, bucket, key, "READ");
 	if (!access) {
 		err = AccessDenied;
-		goto err_out_rb;
+		goto err_out_acc;
 	}
+#endif
 
 	alloc_len = sizeof(*okey) + strlen(key) + 1;
 	okey = alloca(alloc_len);
@@ -667,10 +809,17 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 	if (rc) {
 		if (rc == DB_NOTFOUND)
 			err = NoSuchKey;
-		goto err_out_reset;
+		goto err_out_get;
 	}
 
 	obj = p = pval.data;
+
+	/* Now that we know that the object exists, let's look up access */
+	access = has_access(user, bucket, key, "READ");
+	if (!access) {
+		err = AccessDenied;
+		goto err_out_reset;
+	}
 
 	md5 = obj->md5;
 	name = obj->name;
@@ -802,8 +951,19 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 			strerror(errno));
 		goto err_out_in_end;
 	}
-	if (bytes == 0 && cli->in_len != 0)
-		goto err_out_in_end;
+	if (bytes == 0) {
+		if (cli->in_len != 0)
+			goto err_out_in_end;
+
+		cli_in_end(cli);
+
+		rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+		if (rc) {
+			free(hdr);
+			goto err_out_in_end;
+		}
+		goto start_write;
+	}
 
 	cli->in_len -= bytes;
 
@@ -836,8 +996,44 @@ err_out_in_end:
 err_out_str:
 	g_string_free(extra_hdr, TRUE);
 err_out_reset:
-err_out_rb:
 	free(obj);
+err_out_get:
 	return cli_err(cli, err);
 }
 
+static bool object_get_acls(struct client *cli, const char *user,
+    const char *bucket, const char *key, bool want_body)
+{
+
+	if (!want_body) {
+		/*
+		 * We don't do HEAD for ACLs (yet?)
+		 */
+		return cli_err(cli, InvalidArgument);
+	}
+
+	return access_list(cli, bucket, key, user);
+}
+
+bool object_get(struct client *cli, const char *user, const char *bucket,
+		       const char *key, bool want_body)
+{
+	bool getacl;
+
+	getacl = false;
+	if (cli->req.uri.query_len) {
+		switch (req_is_query(&cli->req)) {
+		case URIQ_ACL:
+			getacl = true;
+			break;
+		default:
+			/* Don't bomb, fall to object_get_body */
+			break;
+		}
+	}
+
+	if (getacl)
+		return object_get_acls(cli, user, bucket, key, want_body);
+	else
+		return object_get_body(cli, user, bucket, key, want_body);
+}

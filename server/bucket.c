@@ -49,6 +49,11 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	DBC *cur = NULL;
 	DB *acls = tdb.acls;
 
+	if (user == NULL)
+		user = DB_ACL_ANON;
+	if (key == NULL)
+		key = "";
+
 	/* alloc ACL key on stack, sized to fit 'key' function arg */
 	alloc_len = sizeof(struct db_acl_key) + 1;
 	if (key) {
@@ -63,7 +68,7 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	memcpy(acl_key->key, key, key_len);
 	acl_key->key[key_len] = 0;
 
-	sprintf(perm, "%s,", perm_in);
+	snprintf(perm, sizeof(perm), "%s,", perm_in);
 
 	/* open transaction, search cursor */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -84,23 +89,18 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	pkey.data = acl_key;
 	pkey.size = alloc_len;
 
-	/* FIXME: Use of DB_NEXT rather than DB_SET to begin search
-	 * means we iterate through entire db, rather than
-	 * starting at the first matching key.
-	 */
-
 	/* loop through matching records (if any) */
-	while (!match) {
-		rc = cur->get(cur, &pkey, &pval, DB_NEXT);
-		if (rc)
-			break;
+	rc = cur->get(cur, &pkey, &pval, DB_SET);
+	while (rc == 0) {
 
 		acl = pval.data;
 
-		if (strncmp(acl->grantee, user, sizeof(acl->grantee)))
-			continue;
+		if (!strncmp(acl->grantee, user, sizeof(acl->grantee))) {
+			match = (strstr(acl->perm, perm) != NULL);
+			break;
+		}
 
-		match = (strstr(acl->perm, perm) == NULL) ? false : true;
+		rc = cur->get(cur, &pkey, &pval, DB_NEXT_DUP);
 	}
 
 	/* close cursor, transaction */
@@ -118,6 +118,71 @@ err_out:
 	if (txn->abort(txn))
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
 	return false;
+}
+
+static int add_access_user(DB_TXN *txn,
+    const char *bucket, const char *key, const char *user, const char *perms)
+{
+	DB *acls = tdb.acls;
+	int key_len;
+	int acl_len;
+	struct db_acl_ent *acl;
+	struct db_acl_key *acl_key;
+	DBT pkey, pval;
+
+	key_len = strlen(key);
+	acl_len = sizeof(struct db_acl_ent) + key_len + 1;
+
+	acl = alloca(acl_len);
+	memset(acl, 0, acl_len);
+
+	acl_key = (struct db_acl_key *) &acl->bucket;	/* trick */
+
+	strncpy(acl->bucket, bucket, sizeof(acl->bucket));
+	strncpy(acl->grantee, user, sizeof(acl->grantee));
+	strncpy(acl->perm, perms, sizeof(acl->perm));
+	strcpy(acl->key, key);
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = acl_key;
+	pkey.size = sizeof(struct db_acl_key) + key_len + 1;
+
+	pval.data = acl;
+	pval.size = acl_len;
+
+	return acls->put(acls, txn, &pkey, &pval, 0);
+}
+
+int add_access_canned(DB_TXN *txn,
+   const char *bucket, const char *key, const char *user, enum ReqACLC canacl)
+{
+	int rc;
+
+	/* All 4 canned modes include FULL_CONTROL, so add that. */
+	rc = add_access_user(txn, bucket, key,
+			     user, "READ,WRITE,READ_ACP,WRITE_ACP,");
+	if (rc)
+		return rc;
+
+	switch (canacl) {
+	default: /* case ACLC_PRIV: */
+		rc = 0;
+		break;
+	case ACLC_PUB_R:
+		rc = add_access_user(txn, bucket, key, DB_ACL_ANON, "READ,");
+		break;
+	case ACLC_PUB_RW:
+		rc = add_access_user(txn, bucket, key,
+				     DB_ACL_ANON, "READ,WRITE,");
+		break;
+	case ACLC_AUTH_R:
+		/* We do not implement this yet */
+		rc = 0;
+		break;
+	}
+	return rc;
 }
 
 bool service_list(struct client *cli, const char *user)
@@ -268,6 +333,30 @@ bool bucket_valid(const char *bucket)
 	return true;
 }
 
+int bucket_find(DB_TXN *txn, const char *bucket, char *owner, int owner_len)
+{
+	DB *buckets = tdb.buckets;
+	DBT key, val;
+	struct db_bucket_ent *ent;
+	int rc;
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	key.data = (char *) bucket;
+	key.size = strlen(bucket) + 1;
+
+	rc = buckets->get(buckets, txn, &key, &val, 0);
+
+	if (rc == 0 && owner != NULL && owner_len > 0) {
+		ent = val.data;
+		strncpy(owner, ent->owner, owner_len);
+		owner[owner_len-1] = 0;
+	}
+
+	return rc;
+}
+
 /*
  * Parse the uri_path and return bucket and path, strndup-ed.
  * Returns true iff succeeded. Else, bucket and path are unchanged.
@@ -308,23 +397,44 @@ bool bucket_base(const char *uri_path, char **pbucket, char **ppath)
 bool bucket_add(struct client *cli, const char *user, const char *bucket)
 {
 	char *hdr, timestr[64];
-	char aclbuf[sizeof(struct db_acl_ent) + 32];
 	enum errcode err = InternalError;
 	int rc;
 	struct db_bucket_ent ent;
-	struct db_acl_ent *acl = (struct db_acl_ent *) &aclbuf;
-	struct db_acl_key *acl_key = (struct db_acl_key *) &acl->bucket;
+	bool setacl;			/* is ok to put pre-existing bucket */
+	enum ReqACLC canacl;
 	DB *buckets = tdb.buckets;
 	DB *acls = tdb.acls;
 	DB_ENV *dbenv = tdb.env;
 	DB_TXN *txn = NULL;
 	DBT key, val;
 
+	if (!user)
+		return cli_err(cli, AccessDenied);
+
+	/* prepare parameters */
+	setacl = false;
+	if (cli->req.uri.query_len) {
+		switch (req_is_query(&cli->req)) {
+		case URIQ_ACL:
+			setacl = true;
+			break;
+		default:
+			err = InvalidURI;
+			goto err_par;
+		}
+	}
+
+	if ((rc = req_acl_canned(&cli->req)) == ACLCNUM) {
+		err = InvalidArgument;
+		goto err_par;
+	}
+	canacl = (rc == -1)? ACLC_PRIV: rc;
+
 	/* begin trans */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		return cli_err(cli, InternalError);
+		goto err_db;
 	}
 
 	memset(&key, 0, sizeof(key));
@@ -340,38 +450,50 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 	val.data = &ent;
 	val.size = sizeof(ent);
 
-	/* attempt to insert new bucket; will fail if it already exists */
-	rc = buckets->put(buckets, txn, &key, &val, DB_NOOVERWRITE);
-	if (rc) {
-		if (rc == DB_KEYEXIST)
-			err = BucketAlreadyExists;
-		else
-			buckets->err(buckets, rc, "buckets->put");
-		goto err_out;
+	if (setacl) {
+		/* check if the bucket exists, else insert it */
+		rc = bucket_find(txn, bucket, NULL, 0);
+		if (rc) {
+			if (rc != DB_NOTFOUND) {
+				buckets->err(buckets, rc, "buckets->put");
+				goto err_out;
+			}
+
+			rc = buckets->put(buckets, txn, &key, &val,
+							DB_NOOVERWRITE);
+			if (rc) {
+				buckets->err(buckets, rc, "buckets->put");
+				goto err_out;
+			}
+		} else {
+			if (!has_access(user, bucket, NULL, "WRITE_ACP")) {
+				err = AccessDenied;
+				goto err_out;
+			}
+			if (!object_del_acls(txn, bucket, ""))
+				goto err_out;
+		}
+
+	} else {
+		/* attempt to insert new bucket */
+		rc = buckets->put(buckets, txn, &key, &val, DB_NOOVERWRITE);
+		if (rc) {
+			if (rc == DB_KEYEXIST)
+				err = BucketAlreadyExists;
+			else
+				buckets->err(buckets, rc, "buckets->put");
+			goto err_out;
+		}
 	}
 
 	/* insert bucket ACL */
-	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-	memset(&aclbuf, 0, sizeof(aclbuf));
-	strcpy(acl->bucket, bucket);
-	strcpy(acl->grantee, user);
-	strcpy(acl->perm, "READ,WRITE,READ_ACL,WRITE_ACL,");
-	strcpy(acl->key, "");
-
-	key.data = acl_key;
-	key.size = sizeof(struct db_acl_key) + strlen(acl_key->key) + 1;
-
-	val.data = acl;
-	val.size = sizeof(struct db_acl_ent) + strlen(acl->key) + 1;
-
-	rc = acls->put(acls, txn, &key, &val, 0);
+	rc = add_access_canned(txn, bucket, "", user, canacl);
 	if (rc) {
 		acls->err(acls, rc, "acls->put");
 		goto err_out;
 	}
 
-	/* commit */
+	/* commit -- no more exception emulation with goto. */
 	rc = txn->commit(txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
@@ -402,6 +524,8 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 err_out:
 	if (txn->abort(txn))
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+err_db:
+err_par:
 	return cli_err(cli, err);
 }
 
@@ -703,7 +827,8 @@ no_component:
 	return false;		/* continue traversal */
 }
 
-bool bucket_list(struct client *cli, const char *user, const char *bucket)
+static bool bucket_list_keys(struct client *cli, const char *user,
+    const char *bucket)
 {
 	GHashTable *param;
 	enum errcode err = InternalError;
@@ -946,3 +1071,215 @@ err_out:
 	return cli_err(cli, err);
 }
 
+bool access_list(struct client *cli, const char *bucket, const char *key,
+    const char *user)
+{
+	struct macl {
+		char		perm[128];		/* perm(s) granted */
+		char		grantee[64];		/* grantee user */
+	};
+
+	GHashTable *param;
+	enum errcode err = InternalError;
+	DB_ENV *dbenv = tdb.env;
+	DB *acls = tdb.acls;
+	int alloc_len;
+	char owner[64];
+	GList *res;
+	struct db_acl_key *acl_key;
+	struct db_acl_ent *acl;
+	DB_TXN *txn = NULL;
+	DBC *cur = NULL;
+	GList *content;
+	DBT pkey, pval;
+	struct macl *mp;
+	char guser[64];
+	GList *p;
+	char *s;
+	int str_len;
+	int rc;
+	bool rcb;
+
+	/* verify READ access for ACL */
+	if (!user || !has_access(user, bucket, key, "READ_ACP")) {
+		err = AccessDenied;
+		goto err_out;
+	}
+
+	/* parse URI query string */
+	param = req_query(&cli->req);
+	if (!param)
+		goto err_out;
+
+	res = NULL;
+
+	alloc_len = sizeof(struct db_acl_key) + strlen(key) + 1;
+	acl_key = alloca(sizeof(alloc_len));
+	memset(acl_key, 0, alloc_len);
+
+	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
+	strcpy(acl_key->key, key);
+
+	/* open transaction, search cursor */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out_param;
+	}
+	rc = acls->cursor(acls, txn, &cur, 0);
+	if (rc) {
+		acls->err(acls, rc, "acls->cursor");
+		goto err_out_rb;
+	}
+
+	rc = bucket_find(txn, bucket, &owner[0], sizeof(owner));
+	if (rc) {
+		if (rc == DB_NOTFOUND)
+			err = InvalidBucketName;
+		goto err_out_rb;
+	}
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+
+	pkey.data = acl_key;
+	pkey.size = alloc_len;
+
+	while ((rc = cur->get(cur, &pkey, &pval, DB_NEXT)) == 0) {
+		acl = pval.data;
+
+		/* This is a workaround, see FIXME about DB_NEXT. */
+		if (strncmp(acl->bucket, bucket, sizeof(acl->bucket)))
+			continue;
+		if (strcmp(acl->key, key))
+			continue;
+
+		if ((mp = malloc(sizeof(struct macl))) == NULL) {
+			cur->close(cur);
+			goto err_out_rb;
+		}
+
+		memcpy(mp->grantee, acl->grantee, sizeof(mp->grantee));
+		mp->grantee[sizeof(mp->grantee)-1] = 0;
+
+		memcpy(mp->perm, acl->perm, sizeof(mp->perm));
+
+		/* lop off the trailing comma */
+		mp->perm[sizeof(mp->perm)-1] = 0;
+		str_len = strlen(mp->perm);
+		if (str_len && mp->perm[str_len-1] == ',')
+			mp->perm[--str_len] = 0;
+
+		res = g_list_append(res, mp);
+	}
+
+	/* close cursor, transaction */
+	rc = cur->close(cur);
+	if (rc)
+		acls->err(acls, rc, "acls->cursor close");
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+
+	/* dump collected acls -- no more exception handling */
+
+	s = g_markup_printf_escaped(
+		"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n"
+		"<AccessControlPolicy "
+		     "xmlns=\"http://indy.yyz.us/doc/2006-03-01/\">\r\n"
+		"  <Owner>\r\n"
+		"    <ID>%s</ID>\r\n"
+		"    <DisplayName>%s</DisplayName>\r\n"
+		"  </Owner>\r\n",
+		owner, owner);
+	content = g_list_append(NULL, s);
+
+	s = g_markup_printf_escaped(
+		"  <AccessControlList>\r\n");
+	content = g_list_append(content, s);
+
+	for (p = res; p != NULL; p = p->next) {
+		mp = p->data;
+
+		if (!strcmp(DB_ACL_ANON, mp->grantee)) {
+			strcpy(guser, "anonymous");
+		} else {
+			strncpy(guser, mp->grantee, sizeof(guser));
+			guser[sizeof(guser)-1] = 0;
+		}
+
+		s = g_markup_printf_escaped(
+			"    <Grant>\r\n"
+			"      <Grantee xmlns:xsi=\"http://www.w3.org/2001/"
+			"XMLSchema-instance\" xsi:type=\"CanonicalUser\">\r\n"
+			"        <ID>%s</ID>\r\n"
+			"        <DisplayName>%s</DisplayName>\r\n"
+			"      </Grantee>\r\n",
+			guser, guser);
+		content = g_list_append(content, s);
+
+		/*
+		 * FIXME This parsing is totally lame, we should replace
+		 * strings with a bit mask once we make sure this works.
+		 */
+		if (!strcmp(mp->perm, "READ,WRITE,READ_ACP,WRITE_ACP")) { 
+			s = g_markup_printf_escaped(
+			   "      <Permission>FULL_CONTROL</Permission>\r\n");
+		} else {
+			s = g_markup_printf_escaped(
+			   "      <Permission>%s</Permission>\r\n",
+			   mp->perm);
+		}
+		content = g_list_append(content, s);
+
+		s = g_markup_printf_escaped("    </Grant>\r\n");
+		content = g_list_append(content, s);
+
+		free(mp);
+	}
+
+	s = g_markup_printf_escaped("  </AccessControlList>\r\n");
+	content = g_list_append(content, s);
+
+	s = g_markup_printf_escaped("</AccessControlPolicy>\r\n");
+	content = g_list_append(content, s);
+
+	g_list_free(res);
+
+	rcb = cli_resp_xml(cli, 200, content);
+	g_list_free(content);
+	return rcb;
+
+err_out_rb:
+	if (txn->abort(txn))
+		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+	for (p = res; p != NULL; p = p->next)
+		free(p->data);
+	g_list_free(res);
+err_out_param:
+	g_hash_table_destroy(param);
+err_out:
+	return cli_err(cli, err);
+}
+
+bool bucket_list(struct client *cli, const char *user, const char *bucket)
+{
+	bool getacl;
+
+	getacl = false;
+	if (cli->req.uri.query_len) {
+		switch (req_is_query(&cli->req)) {
+		case URIQ_ACL:
+			getacl = true;
+			break;
+		default:
+			/* Don't bomb, fall to bucket_list_keys */
+			break;
+		}
+	}
+
+	if (getacl)
+		return access_list(cli, bucket, "", user);
+	else
+		return bucket_list_keys(cli, user, bucket);
+}

@@ -201,7 +201,7 @@ static void req_sign_amz(HMAC_CTX *ctx, struct http_req *req)
 	cust_fin(&cust);
 }
 
-static const char *req_query_sign[] = {
+static const char *req_query_sign[URIQNUM] = {
 	"acl",
 	"location",
 	"logging",
@@ -212,7 +212,7 @@ void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out)
 {
 	HMAC_CTX ctx;
-	unsigned int len = 0, i;
+	unsigned int len = 0;
 	unsigned char md[EVP_MAX_MD_SIZE];
 	int save = 0, state = 0, b64_len;
 
@@ -238,15 +238,10 @@ void req_sign(struct http_req *req, const char *bucket, const char *key,
 
 	_HMAC_Update(&ctx, req->orig_path, strlen(req->orig_path));
 
-	if (req->uri.query_len)
-		for (i = 0; i < ARRAY_SIZE(req_query_sign); i++)
-			if (!strncasecmp(req->uri.query, req_query_sign[i],
-					 req->uri.query_len)) {
-				_HMAC_Update(&ctx, "?", 1);
-				_HMAC_Update(&ctx,
-				    req->uri.query, req->uri.query_len);
-				break;
-			}
+	if (req_is_query(req) != -1) {
+		_HMAC_Update(&ctx, "?", 1);
+		_HMAC_Update(&ctx, req->uri.query, req->uri.query_len);
+	}
 
 	HMAC_Final(&ctx, md, &len);
 	HMAC_CTX_cleanup(&ctx);
@@ -323,3 +318,39 @@ GHashTable *req_query(struct http_req *req)
 	return ht;
 }
 
+int req_is_query(struct http_req *req)
+{
+	int i;
+
+	if (req->uri.query_len)
+		for (i = 0; i < URIQNUM; i++)
+			if (!strcasecmp(req->uri.query, req_query_sign[i]))
+				return i;
+	return -1;
+}
+
+static const char *req_acl_cans[ACLCNUM] = {
+	"private",
+	"public-read",
+	"public-read-write",
+	"authenticated-read"
+};
+
+/*
+ * Return -1 if no header is present, which is ok.
+ * Return ACLCNUM if header is present, but the policy is invalid.
+ */
+int req_acl_canned(struct http_req *req)
+{
+	const char *aclhdr;
+	int i;
+
+	aclhdr = req_hdr(req, "x-amz-acl");
+	if (!aclhdr)
+		return -1;
+
+	for (i = 0; i < ACLCNUM; i++)
+		if (!strcasecmp(aclhdr, req_acl_cans[i]))
+			return i;
+	return ACLCNUM;
+}

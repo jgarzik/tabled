@@ -68,6 +68,22 @@ struct http_req {
 	struct http_hdr		hdr[REQ_MAX_HDR];
 };
 
+enum ReqQ {
+	URIQ_ACL,
+	URIQ_LOCATION,
+	URIQ_LOGGING,
+	URIQ_TORRENT,
+	URIQNUM
+};
+
+enum ReqACLC {
+	ACLC_PRIV,
+	ACLC_PUB_R,
+	ACLC_PUB_RW,
+	ACLC_AUTH_R,
+	ACLCNUM
+};
+
 /* httputil.c */
 extern char *time2str(char *strbuf, time_t time);
 extern time_t str2time(const char *timestr);
@@ -76,7 +92,9 @@ extern char *req_hdr(struct http_req *req, const char *key);
 extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
 extern GHashTable *req_query(struct http_req *req);
+extern int req_is_query(struct http_req *req);
 extern void req_free(struct http_req *req);
+extern int req_acl_canned(struct http_req *req);
 
 /* uri.c */
 extern struct uri *uri_parse(struct uri *uri_dest, char *uri_src_text);
