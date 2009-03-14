@@ -1222,7 +1222,7 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 		 * FIXME This parsing is totally lame, we should replace
 		 * strings with a bit mask once we make sure this works.
 		 */
-		if (!strcmp(mp->perm, "READ,WRITE,READ_ACP,WRITE_ACP")) { 
+		if (!strcmp(mp->perm, "READ,WRITE,READ_ACP,WRITE_ACP")) {
 			s = g_markup_printf_escaped(
 			   "      <Permission>FULL_CONTROL</Permission>\r\n");
 		} else {
