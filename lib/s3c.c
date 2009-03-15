@@ -209,6 +209,7 @@ struct s3_blist *s3c_list_buckets(struct s3_client *s3c)
 	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, all_data);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 
@@ -324,6 +325,7 @@ static bool __s3c_ad_bucket(struct s3_client *s3c, const char *name,
 	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 
@@ -385,6 +387,7 @@ bool s3c_get(struct s3_client *s3c, const char *bucket, const char *key,
 	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, write_cb);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, user_data);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 
@@ -473,6 +476,7 @@ bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
 	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
 	curl_easy_setopt(s3c->curl, CURLOPT_UPLOAD, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_INFILESIZE_LARGE, len);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 
@@ -549,6 +553,7 @@ bool s3c_del(struct s3_client *s3c, const char *bucket, const char *key)
 	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 
@@ -766,6 +771,7 @@ struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
 	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
 	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, all_data);
+	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(s3c->curl);
 

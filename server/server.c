@@ -32,6 +32,7 @@
 #include <signal.h>
 #include <locale.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
 #include <syslog.h>
@@ -1124,6 +1125,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	socklen_t addrlen = sizeof(struct sockaddr_in6);
 	struct client *cli;
 	char host[64];
+	int on = 1;
 
 	/* alloc and init client info */
 	cli = cli_alloc();
@@ -1150,6 +1152,11 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	/* mark non-blocking, for upcoming poll use */
 	if (fsetflags("tcp client", cli->fd, O_NONBLOCK) < 0)
 		goto err_out_fd;
+
+	/* disable delay of small output packets */
+	if (setsockopt(cli->fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
+		syslog(LOG_WARNING, "TCP_NODELAY failed: %s",
+		       strerror(errno));
 
 	/* add to poll watchlist */
 	if (event_add(&cli->ev, NULL) < 0) {
