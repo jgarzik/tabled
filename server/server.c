@@ -99,7 +99,7 @@ int debugging = 0;
 struct server tabled_srv = {
 	.data_dir		= "/spare/tmp/tabled/lib",
 	.tdb_dir		= "/spare/tmp/tabled/lib/tdb",
-	.pid_file		= "/spare/tmp/tabled/run/tabled.pid",
+	.pid_file		= "/var/run/tabled.pid",
 	.port			= TABLED_DEF_PORT,
 };
 
