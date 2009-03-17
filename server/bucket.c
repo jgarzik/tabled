@@ -102,7 +102,7 @@ bool has_access(const char *user, const char *bucket, const char *key,
 		rc = cur->get(cur, &pkey, &pval, DB_NEXT_DUP);
 	}
 
-	if (rc != DB_NOTFOUND)
+	if (rc && rc != DB_NOTFOUND)
 		acls->err(acls, rc, "has_access iteration");
 
 	/* close cursor, transaction */
