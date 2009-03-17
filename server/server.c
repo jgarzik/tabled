@@ -93,7 +93,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
-uint64_t counter;
+uint64_t objid_counter;
 int debugging = 0;
 
 struct server tabled_srv = {
@@ -1333,10 +1333,11 @@ int main (int argc, char *argv[])
 	int rc = 1;
 	uint64_t r1, r2;
 
+	/* initialize initial object id to random number */
 	srand(time(NULL));
 	r1 = rand();
 	r2 = rand();
-	counter = (r1 << 32) | (r2 & 0xffffffff);
+	objid_counter = (r1 << 32) | (r2 & 0xffffffff);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");

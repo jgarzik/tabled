@@ -267,7 +267,7 @@ static void append_hdr_string(GArray *string_lens, GByteArray *string_data,
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[MD5_DIGEST_LENGTH];
-	char counter[64], md5[33], timestr[64];
+	char objid_str[64], md5[33], timestr[64];
 	char *type, *hdr, *fn = NULL;
 	int rc, i;
 	enum errcode err = InternalError;
@@ -311,7 +311,7 @@ static bool object_put_end(struct client *cli)
 
 	MD5_Final(md, &cli->out_md5);
 
-	sprintf(counter, "%016llX", (unsigned long long) cli->out_counter);
+	sprintf(objid_str, "%016llX", (unsigned long long) cli->out_objid);
 	md5str(md, md5);
 
 	type = req_hdr(&cli->req, "content-type");
@@ -388,7 +388,7 @@ static bool object_put_end(struct client *cli)
 		goto err_out_rb;
 
 	/* encode object header */
-	strncpy(obj->name, counter, sizeof(obj->name));
+	strncpy(obj->name, objid_str, sizeof(obj->name));
 	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
 	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
 	strncpy(obj->md5, md5, sizeof(obj->md5));
@@ -533,12 +533,12 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 		return cli_err(cli, AccessDenied);
 
 	while (cli->out_fd < 0) {
-		counter++;
+		objid_counter++;
 
 		free(fn);
 
 		if (asprintf(&fn, "%s/%016llX", tabled_srv.data_dir,
-			     (unsigned long long) counter) < 0) {
+			     (unsigned long long) objid_counter) < 0) {
 			syslog(LOG_ERR, "OOM in object_put");
 			return cli_err(cli, InternalError);
 		}
@@ -551,7 +551,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 	cli->out_key = strdup(key);
 	MD5_Init(&cli->out_md5);
 	cli->out_len = content_len;
-	cli->out_counter = counter;
+	cli->out_objid = objid_counter;
 	cli->out_user = strdup(user);
 
 	/* handle Expect: 100-continue header, by unconditionally

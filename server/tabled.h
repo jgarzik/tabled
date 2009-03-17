@@ -126,7 +126,7 @@ struct client {
 	char			*out_user;
 	MD5_CTX			out_md5;
 	long			out_len;
-	uint64_t		out_counter;
+	uint64_t		out_objid;
 
 	int			in_fd;
 	char			*in_fn;
@@ -214,7 +214,7 @@ extern void tdb_init(void);
 
 /* server.c */
 extern int debugging;
-extern uint64_t counter;
+extern uint64_t objid_counter;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);
