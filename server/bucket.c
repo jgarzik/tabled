@@ -1128,7 +1128,7 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 	res = NULL;
 
 	alloc_len = sizeof(struct db_acl_key) + strlen(key) + 1;
-	acl_key = alloca(sizeof(alloc_len));
+	acl_key = alloca(alloc_len);
 	memset(acl_key, 0, alloc_len);
 
 	strncpy(acl_key->bucket, bucket, sizeof(acl_key->bucket));
