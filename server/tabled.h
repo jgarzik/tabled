@@ -36,9 +36,11 @@
 #endif
 
 enum {
-	TABLED_PGSZ_INODE	= 1024,
-	TABLED_PGSZ_SESSION	= 512,
-	TABLED_PGSZ_LOCK	= 512,
+	TABLED_PGSZ_INODE	= 4096,
+	TABLED_PGSZ_SESSION	= 4096,
+	TABLED_PGSZ_LOCK	= 4096,
+
+	TABLED_CHKPT_SEC	= 60 * 5,	/* secs between db4 chkpt */
 
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
 	CLI_DATA_BUF_SZ		= 8192,
@@ -156,6 +158,8 @@ struct server {
 	struct database		*db;		/* database handle */
 
 	GList			*sockets;
+
+	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
 	struct server_stats	stats;		/* global statistics */
 };

@@ -1180,6 +1180,31 @@ err_out:
 	free(cli);
 }
 
+static void add_chkpt_timer(void)
+{
+	struct timeval tv = { TABLED_CHKPT_SEC, 0 };
+
+	if (evtimer_add(&tabled_srv.chkpt_timer, &tv) < 0)
+		syslog(LOG_WARNING, "unable to add checkpoint timer");
+}
+
+static void tdb_checkpoint(int fd, short events, void *userdata)
+{
+	DB_ENV *dbenv = tdb.env;
+	int rc;
+
+	if (debugging)
+		syslog(LOG_INFO, "db4 checkpoint");
+
+	/* flush logs to db, if log files >= 1MB */
+	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "txn_checkpoint");
+
+	/* reactivate timer, to call ourselves again */
+	add_chkpt_timer();
+}
+
 static int net_open(void)
 {
 	int ipv6_found;
@@ -1358,6 +1383,9 @@ int main (int argc, char *argv[])
 	event_init();
 
 	tdb_init();
+
+	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
+	add_chkpt_timer();
 
 	/* set up server networking */
 	rc = net_open();
