@@ -859,8 +859,8 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	DBT pkey, pval;
 	struct db_obj_key *obj_key;
 	size_t alloc_len;
-	bool first_loop = true;
 	bool seen_prefix = false;
+	int get_flags;
 
 	/* verify READ access */
 	if (!user || !has_access(user, bucket, NULL, "READ")) {
@@ -925,17 +925,11 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	bli.maxkeys = maxkeys;
 
 	/* iterate through each returned data row */
+	get_flags = DB_SET_RANGE;
 	while (1) {
 		char *key, *name, *md5;
-		int get_flags;
 		struct db_obj_key *tmpkey;
 		struct db_obj_ent *obj;
-
-		if (first_loop) {
-			get_flags = DB_SET_RANGE;
-			first_loop = false;
-		} else
-			get_flags = DB_NEXT;
 
 		rc = cur->get(cur, &pkey, &pval, get_flags);
 		if (rc) {
@@ -943,6 +937,8 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 				objs->err(objs, rc, "bucket_list_keys iter");
 			break;
 		}
+
+		get_flags = DB_NEXT;
 
 		tmpkey = pkey.data;
 		obj = pval.data;
