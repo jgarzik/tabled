@@ -46,7 +46,7 @@ mkdir -p %{buildroot}/etc/sysconfig
 install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/tabled
 
 %check
-make check
+make -s check
 
 %clean
 rm -rf $RPM_BUILD_ROOT
