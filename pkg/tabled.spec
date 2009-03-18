@@ -76,7 +76,7 @@ fi
 
 %files devel
 %defattr(-,root,root,0644)
-%{_includedir}/s3c.h
+%{_includedir}/*.h
 
 %changelog
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1%{?dist}
