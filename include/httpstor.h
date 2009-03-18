@@ -1,5 +1,5 @@
-#ifndef __S3C_H__
-#define __S3C_H__
+#ifndef __HTTPSTOR_H__
+#define __HTTPSTOR_H__
 
 /*
  * Copyright 2008-2009 Red Hat, Inc.
@@ -25,7 +25,7 @@
 #include <curl/curl.h>
 #include <glib.h>
 
-struct s3_client {
+struct httpstor_client {
 	CURL		*curl;
 	char		*host;
 	char		*user;
@@ -33,18 +33,18 @@ struct s3_client {
 	bool		verbose;
 };
 
-struct s3_bucket {
+struct httpstor_bucket {
 	char		*name;
 	char		*time_create;
 };
 
-struct s3_blist {
+struct httpstor_blist {
 	char		*own_id;	/* ID */
 	char		*own_name;	/* DisplayName */
-	GList		*list;		/* list of s3_bucket */
+	GList		*list;		/* list of httpstor_bucket */
 };
 
-struct s3_object {
+struct httpstor_object {
 	char		*key;
 	char		*time_mod;
 	char		*etag;
@@ -54,7 +54,7 @@ struct s3_object {
 	char		*own_name;
 };
 
-struct s3_keylist {
+struct httpstor_keylist {
 	char		*name;
 	char		*prefix;
 	char		*marker;
@@ -65,35 +65,35 @@ struct s3_keylist {
 	GList		*common_pfx;
 };
 
-extern void s3c_free(struct s3_client *s3c);
-extern void s3c_free_blist(struct s3_blist *blist);
-extern void s3c_free_bucket(struct s3_bucket *buck);
-extern void s3c_free_object(struct s3_object *obj);
-extern void s3c_free_keylist(struct s3_keylist *keylist);
+extern void httpstor_free(struct httpstor_client *httpstor);
+extern void httpstor_free_blist(struct httpstor_blist *blist);
+extern void httpstor_free_bucket(struct httpstor_bucket *buck);
+extern void httpstor_free_object(struct httpstor_object *obj);
+extern void httpstor_free_keylist(struct httpstor_keylist *keylist);
 
-extern struct s3_client *s3c_new(const char *service_host,
+extern struct httpstor_client *httpstor_new(const char *service_host,
 				 const char *user, const char *secret_key);
 
-extern bool s3c_add_bucket(struct s3_client *s3c, const char *name);
-extern bool s3c_del_bucket(struct s3_client *s3c, const char *name);
+extern bool httpstor_add_bucket(struct httpstor_client *httpstor, const char *name);
+extern bool httpstor_del_bucket(struct httpstor_client *httpstor, const char *name);
 
-extern struct s3_blist *s3c_list_buckets(struct s3_client *s3c);
+extern struct httpstor_blist *httpstor_list_buckets(struct httpstor_client *httpstor);
 
-extern bool s3c_get(struct s3_client *s3c, const char *bucket, const char *key,
+extern bool httpstor_get(struct httpstor_client *httpstor, const char *bucket, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers);
-extern void *s3c_get_inline(struct s3_client *s3c, const char *bucket,
+extern void *httpstor_get_inline(struct httpstor_client *httpstor, const char *bucket,
 			    const char *key, bool want_headers, size_t *len);
-extern bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
+extern bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data, char **user_hdrs);
-extern bool s3c_put_inline(struct s3_client *s3c, const char *bucket,
+extern bool httpstor_put_inline(struct httpstor_client *httpstor, const char *bucket,
 			   const char *key, void *data, uint64_t len,
 			   char **user_hdrs);
-extern bool s3c_del(struct s3_client *s3c, const char *bucket, const char *key);
+extern bool httpstor_del(struct httpstor_client *httpstor, const char *bucket, const char *key);
 
-extern struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
+extern struct httpstor_keylist *httpstor_keys(struct httpstor_client *httpstor, const char *bucket,
 			    const char *prefix, const char *marker,
 			    const char *delim, unsigned int max_keys);
 
-#endif /* __S3C_H__ */
+#endif /* __HTTPSTOR_H__ */

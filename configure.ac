@@ -17,20 +17,20 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program; if not, write to the Free Software
 dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-m4_define([libs3c_major_version], [1])
-m4_define([libs3c_minor_version], [1])
-m4_define([libs3c_micro_version], [1])
-m4_define([libs3c_interface_age], [1])
+m4_define([libhttpstor_major_version], [1])
+m4_define([libhttpstor_minor_version], [1])
+m4_define([libhttpstor_micro_version], [1])
+m4_define([libhttpstor_interface_age], [1])
 # If you need a modifier for the version number. 
 # Normally empty, but can be used to make "fixup" releases.
-m4_define([libs3c_extraversion], [])
+m4_define([libhttpstor_extraversion], [])
 
-dnl libtool versioning from libs3c
-m4_define([libs3c_current], [m4_eval(100 * libs3c_minor_version + libs3c_micro_version - libs3c_interface_age)])
-m4_define([libs3c_binary_age], [m4_eval(100 * libs3c_minor_version + libs3c_micro_version)])
-m4_define([libs3c_revision], [libs3c_interface_age])
-m4_define([libs3c_age], [m4_eval(libs3c_binary_age - libs3c_interface_age)])
-m4_define([libs3c_version], [libs3c_major_version().libs3c_minor_version().libs3c_micro_version()libs3c_extraversion()])
+dnl libtool versioning from libhttpstor
+m4_define([libhttpstor_current], [m4_eval(100 * libhttpstor_minor_version + libhttpstor_micro_version - libhttpstor_interface_age)])
+m4_define([libhttpstor_binary_age], [m4_eval(100 * libhttpstor_minor_version + libhttpstor_micro_version)])
+m4_define([libhttpstor_revision], [libhttpstor_interface_age])
+m4_define([libhttpstor_age], [m4_eval(libhttpstor_binary_age - libhttpstor_interface_age)])
+m4_define([libhttpstor_version], [libhttpstor_major_version().libhttpstor_minor_version().libhttpstor_micro_version()libhttpstor_extraversion()])
 
 AC_INIT([tabled], [0.3git],
         [http://www.kernel.org/pub/software/network/distsrv/])
@@ -40,18 +40,18 @@ AC_CONFIG_SRCDIR([server/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([tabled-config.h])
 
-LIBS3C_MAJOR_VERSION=libs3c_major_version
-LIBS3C_MINOR_VERSION=libs3c_minor_version
-LIBS3C_MICRO_VERSION=libs3c_micro_version
-LIBS3C_INTERFACE_AGE=libs3c_interface_age
+LIBHTTPSTOR_MAJOR_VERSION=libhttpstor_major_version
+LIBHTTPSTOR_MINOR_VERSION=libhttpstor_minor_version
+LIBHTTPSTOR_MICRO_VERSION=libhttpstor_micro_version
+LIBHTTPSTOR_INTERFACE_AGE=libhttpstor_interface_age
 
-LIBS3C_CURRENT=libs3c_current
-LIBS3C_REVISION=libs3c_revision
-LIBS3C_AGE=libs3c_age
+LIBHTTPSTOR_CURRENT=libhttpstor_current
+LIBHTTPSTOR_REVISION=libhttpstor_revision
+LIBHTTPSTOR_AGE=libhttpstor_age
 
-AC_SUBST(LIBS3C_CURRENT)
-AC_SUBST(LIBS3C_REVISION)
-AC_SUBST(LIBS3C_AGE)
+AC_SUBST(LIBHTTPSTOR_CURRENT)
+AC_SUBST(LIBHTTPSTOR_REVISION)
+AC_SUBST(LIBHTTPSTOR_AGE)
 
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
@@ -107,8 +107,8 @@ AC_SUBST(ARGP_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
-		 lib/libs3c.pc
-		 lib/libs3c-uninstalled.pc
+		 lib/libhttpstor.pc
+		 lib/libhttpstor-uninstalled.pc
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile

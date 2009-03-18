@@ -25,7 +25,7 @@
 #include <openssl/hmac.h>
 #include <libxml/tree.h>
 #include <glib.h>
-#include <s3c.h>
+#include <httpstor.h>
 #include <httputil.h>
 
 static int _strcasecmp(const unsigned char *a, const char *b)
@@ -38,42 +38,42 @@ static int _strcmp(const unsigned char *a, const char *b)
 	return xmlStrcmp(a, (const unsigned char *) b);
 }
 
-void s3c_free(struct s3_client *s3c)
+void httpstor_free(struct httpstor_client *httpstor)
 {
-	if (s3c->curl)
-		curl_easy_cleanup(s3c->curl);
-	free(s3c->host);
-	free(s3c->user);
-	free(s3c->key);
-	free(s3c);
+	if (httpstor->curl)
+		curl_easy_cleanup(httpstor->curl);
+	free(httpstor->host);
+	free(httpstor->user);
+	free(httpstor->key);
+	free(httpstor);
 }
 
-struct s3_client *s3c_new(const char *service_host,
+struct httpstor_client *httpstor_new(const char *service_host,
 				 const char *user, const char *secret_key)
 {
-	struct s3_client *s3c;
+	struct httpstor_client *httpstor;
 
-	s3c = calloc(1, sizeof(struct s3_client));
-	if (!s3c)
+	httpstor = calloc(1, sizeof(struct httpstor_client));
+	if (!httpstor)
 		return NULL;
 
-	s3c->host = strdup(service_host);
-	s3c->user = strdup(user);
-	s3c->key = strdup(secret_key);
-	if (!s3c->host || !s3c->user || !s3c->key)
+	httpstor->host = strdup(service_host);
+	httpstor->user = strdup(user);
+	httpstor->key = strdup(secret_key);
+	if (!httpstor->host || !httpstor->user || !httpstor->key)
 		goto err_out;
 
 	if (curl_global_init(CURL_GLOBAL_ALL))
 		goto err_out;
 
-	s3c->curl = curl_easy_init();
-	if (!s3c->curl)
+	httpstor->curl = curl_easy_init();
+	if (!httpstor->curl)
 		goto err_out;
 
-	return s3c;
+	return httpstor;
 
 err_out:
-	s3c_free(s3c);
+	httpstor_free(httpstor);
 	return NULL;
 }
 
@@ -87,7 +87,7 @@ static size_t all_data_cb(void *ptr, size_t size, size_t nmemb, void *user_data)
 	return len;
 }
 
-void s3c_free_bucket(struct s3_bucket *buck)
+void httpstor_free_bucket(struct httpstor_bucket *buck)
 {
 	if (!buck)
 		return;
@@ -97,7 +97,7 @@ void s3c_free_bucket(struct s3_bucket *buck)
 	free(buck);
 }
 
-void s3c_free_blist(struct s3_blist *blist)
+void httpstor_free_blist(struct httpstor_blist *blist)
 {
 	GList *tmp;
 
@@ -109,10 +109,10 @@ void s3c_free_blist(struct s3_blist *blist)
 
 	tmp = blist->list;
 	while (tmp) {
-		struct s3_bucket *buck;
+		struct httpstor_bucket *buck;
 
 		buck = tmp->data;
-		s3c_free_bucket(buck);
+		httpstor_free_bucket(buck);
 
 		tmp = tmp->next;
 	}
@@ -122,10 +122,10 @@ void s3c_free_blist(struct s3_blist *blist)
 	free(blist);
 }
 
-static void s3c_parse_buckets(xmlDocPtr doc, xmlNode *node,
-			      struct s3_blist *blist)
+static void httpstor_parse_buckets(xmlDocPtr doc, xmlNode *node,
+			      struct httpstor_blist *blist)
 {
-	struct s3_bucket *buck;
+	struct httpstor_bucket *buck;
 	xmlNode *tmp;
 
 	while (node) {
@@ -158,7 +158,7 @@ next_tmp:
 		}
 
 		if (!buck->name)
-			s3c_free_bucket(buck);
+			httpstor_free_bucket(buck);
 		else
 			blist->list = g_list_append(blist->list, buck);
 
@@ -167,12 +167,12 @@ next:
 	}
 }
 
-struct s3_blist *s3c_list_buckets(struct s3_client *s3c)
+struct httpstor_blist *httpstor_list_buckets(struct httpstor_client *httpstor)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
 	struct curl_slist *headers = NULL;
-	struct s3_blist *blist;
+	struct httpstor_blist *blist;
 	xmlDocPtr doc;
 	xmlNode *node;
 	xmlChar *xs;
@@ -191,27 +191,27 @@ struct s3_blist *s3c_list_buckets(struct s3_client *s3c)
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, "http://localhost:18080/");
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, all_data);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, "http://localhost:18080/");
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_ENCODING, "");
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEDATA, all_data);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	curl_slist_free_all(headers);
 
@@ -270,7 +270,7 @@ struct s3_blist *s3c_list_buckets(struct s3_client *s3c)
 		}
 
 		else if (!_strcmp(node->name, "Buckets"))
-			s3c_parse_buckets(doc, node->children, blist);
+			httpstor_parse_buckets(doc, node->children, blist);
 
 		node = node->next;
 	}
@@ -289,7 +289,7 @@ err_out:
 	return NULL;
 }
 
-static bool __s3c_ad_bucket(struct s3_client *s3c, const char *name,
+static bool __httpstor_ad_bucket(struct httpstor_client *httpstor, const char *name,
 			    bool delete)
 {
 	struct http_req req;
@@ -308,43 +308,43 @@ static bool __s3c_ad_bucket(struct s3_client *s3c, const char *name,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 	sprintf(url, "http://localhost:18080/%s/", name);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, url);
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_CUSTOMREQUEST, req.method);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	curl_slist_free_all(headers);
 
 	return (rc == 0);
 }
 
-bool s3c_add_bucket(struct s3_client *s3c, const char *name)
+bool httpstor_add_bucket(struct httpstor_client *httpstor, const char *name)
 {
-	return __s3c_ad_bucket(s3c, name, false);
+	return __httpstor_ad_bucket(httpstor, name, false);
 }
 
-bool s3c_del_bucket(struct s3_client *s3c, const char *name)
+bool httpstor_del_bucket(struct httpstor_client *httpstor, const char *name)
 {
-	return __s3c_ad_bucket(s3c, name, true);
+	return __httpstor_ad_bucket(httpstor, name, true);
 }
 
-bool s3c_get(struct s3_client *s3c, const char *bucket, const char *key,
+bool httpstor_get(struct httpstor_client *httpstor, const char *bucket, const char *key,
 	     size_t (*write_cb)(void *, size_t, size_t, void *),
 	     void *user_data, bool want_headers)
 {
@@ -367,29 +367,29 @@ bool s3c_get(struct s3_client *s3c, const char *bucket, const char *key,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 	sprintf(url, "http://localhost:18080%s", orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, url);
-	curl_easy_setopt(s3c->curl, CURLOPT_HEADER, want_headers ? 1 : 0);
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, write_cb);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, user_data);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HEADER, want_headers ? 1 : 0);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_ENCODING, "");
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEFUNCTION, write_cb);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEDATA, user_data);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	curl_slist_free_all(headers);
 	free(orig_path);
@@ -397,7 +397,7 @@ bool s3c_get(struct s3_client *s3c, const char *bucket, const char *key,
 	return (rc == 0);
 }
 
-void *s3c_get_inline(struct s3_client *s3c, const char *bucket, const char *key,
+void *httpstor_get_inline(struct httpstor_client *httpstor, const char *bucket, const char *key,
 		     bool want_headers, size_t *len)
 {
 	bool rcb;
@@ -408,7 +408,7 @@ void *s3c_get_inline(struct s3_client *s3c, const char *bucket, const char *key,
 	if (!all_data)
 		return NULL;
 
-	rcb = s3c_get(s3c, bucket, key, all_data_cb, all_data, want_headers);
+	rcb = httpstor_get(httpstor, bucket, key, all_data_cb, all_data, want_headers);
 	if (!rcb) {
 		g_byte_array_free(all_data, TRUE);
 		return NULL;
@@ -423,7 +423,7 @@ void *s3c_get_inline(struct s3_client *s3c, const char *bucket, const char *key,
 	return mem;
 }
 
-bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
+bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const char *key,
 	     size_t (*read_cb)(void *, size_t, size_t, void *),
 	     uint64_t len, void *user_data, char **user_hdrs)
 {
@@ -446,10 +446,10 @@ bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 	sprintf(url, "http://localhost:18080%s", orig_path);
 
 	headers = curl_slist_append(headers, host);
@@ -465,20 +465,20 @@ bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
 		}
 	}
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, url);
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_READFUNCTION, read_cb);
-	curl_easy_setopt(s3c->curl, CURLOPT_READDATA, user_data);
-	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
-	curl_easy_setopt(s3c->curl, CURLOPT_UPLOAD, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_INFILESIZE_LARGE, len);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_READFUNCTION, read_cb);
+	curl_easy_setopt(httpstor->curl, CURLOPT_READDATA, user_data);
+	curl_easy_setopt(httpstor->curl, CURLOPT_CUSTOMREQUEST, req.method);
+	curl_easy_setopt(httpstor->curl, CURLOPT_UPLOAD, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_INFILESIZE_LARGE, len);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	curl_slist_free_all(headers);
 	free(orig_path);
@@ -486,7 +486,7 @@ bool s3c_put(struct s3_client *s3c, const char *bucket, const char *key,
 	return (rc == 0);
 }
 
-struct s3c_put_info {
+struct httpstor_put_info {
 	void		*data;
 	uint64_t	len;
 };
@@ -494,7 +494,7 @@ struct s3c_put_info {
 static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 			     void *user_data)
 {
-	struct s3c_put_info *spi = user_data;
+	struct httpstor_put_info *spi = user_data;
 	int len = size * nmemb;
 
 	len = MIN(len, spi->len);
@@ -507,15 +507,15 @@ static size_t read_inline_cb(void *ptr, size_t size, size_t nmemb,
 	return len;
 }
 
-bool s3c_put_inline(struct s3_client *s3c, const char *bucket, const char *key,
+bool httpstor_put_inline(struct httpstor_client *httpstor, const char *bucket, const char *key,
 	     void *data, uint64_t len, char **user_hdrs)
 {
-	struct s3c_put_info spi = { data, len };
+	struct httpstor_put_info spi = { data, len };
 
-	return s3c_put(s3c, bucket, key, read_inline_cb, len, &spi, user_hdrs);
+	return httpstor_put(httpstor, bucket, key, read_inline_cb, len, &spi, user_hdrs);
 }
 
-bool s3c_del(struct s3_client *s3c, const char *bucket, const char *key)
+bool httpstor_del(struct httpstor_client *httpstor, const char *bucket, const char *key)
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
@@ -536,26 +536,26 @@ bool s3c_del(struct s3_client *s3c, const char *bucket, const char *key)
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 	sprintf(url, "http://localhost:18080%s", orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, url);
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_CUSTOMREQUEST, req.method);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_CUSTOMREQUEST, req.method);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	curl_slist_free_all(headers);
 	free(orig_path);
@@ -581,7 +581,7 @@ GString *append_qparam(GString *str, const char *key, const char *val,
 	return str;
 }
 
-void s3c_free_object(struct s3_object *obj)
+void httpstor_free_object(struct httpstor_object *obj)
 {
 	if (!obj)
 		return;
@@ -595,7 +595,7 @@ void s3c_free_object(struct s3_object *obj)
 	free(obj);
 }
 
-void s3c_free_keylist(struct s3_keylist *keylist)
+void httpstor_free_keylist(struct httpstor_keylist *keylist)
 {
 	GList *tmp;
 
@@ -615,7 +615,7 @@ void s3c_free_keylist(struct s3_keylist *keylist)
 
 	tmp = keylist->contents;
 	while (tmp) {
-		s3c_free_object(tmp->data);
+		httpstor_free_object(tmp->data);
 		tmp = tmp->next;
 	}
 	g_list_free(keylist->contents);
@@ -623,10 +623,10 @@ void s3c_free_keylist(struct s3_keylist *keylist)
 	free(keylist);
 }
 
-static void s3c_parse_key(xmlDocPtr doc, xmlNode *node,
-			  struct s3_keylist *keylist)
+static void httpstor_parse_key(xmlDocPtr doc, xmlNode *node,
+			  struct httpstor_keylist *keylist)
 {
-	struct s3_object *obj = calloc(1, sizeof(*obj));
+	struct httpstor_object *obj = calloc(1, sizeof(*obj));
 	xmlChar *xs;
 
 	obj = calloc(1, sizeof(*obj));
@@ -698,10 +698,10 @@ static void s3c_parse_key(xmlDocPtr doc, xmlNode *node,
 	if (obj->key)
 		keylist->contents = g_list_append(keylist->contents, obj);
 	else
-		s3c_free_object(obj);
+		httpstor_free_object(obj);
 }
 
-struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
+struct httpstor_keylist *httpstor_keys(struct httpstor_client *httpstor, const char *bucket,
 			    const char *prefix, const char *marker,
 			    const char *delim, unsigned int max_keys)
 {
@@ -709,7 +709,7 @@ struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
 	char orig_path[strlen(bucket) + 8];
 	struct curl_slist *headers = NULL;
-	struct s3_keylist *keylist;
+	struct httpstor_keylist *keylist;
 	xmlDocPtr doc;
 	xmlNode *node;
 	xmlChar *xs;
@@ -732,10 +732,10 @@ struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
 
 	req_hdr_push(&req, "Date", timestr);
 
-	req_sign(&req, NULL, s3c->key, hmac);
+	req_sign(&req, NULL, httpstor->key, hmac);
 
-	sprintf(auth, "Authorization: AWS %s:%s", s3c->user, hmac);
-	sprintf(host, "Host: %s", s3c->host);
+	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
+	sprintf(host, "Host: %s", httpstor->host);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -762,18 +762,18 @@ struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
 		url = g_string_append(url, mk);
 	}
 
-	curl_easy_reset(s3c->curl);
-	if (s3c->verbose)
-		curl_easy_setopt(s3c->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_URL, url->str);
-	curl_easy_setopt(s3c->curl, CURLOPT_HTTPHEADER, headers);
-	curl_easy_setopt(s3c->curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(s3c->curl, CURLOPT_FAILONERROR, 1);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(s3c->curl, CURLOPT_WRITEDATA, all_data);
-	curl_easy_setopt(s3c->curl, CURLOPT_TCP_NODELAY, 1);
+	curl_easy_reset(httpstor->curl);
+	if (httpstor->verbose)
+		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url->str);
+	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
+	curl_easy_setopt(httpstor->curl, CURLOPT_ENCODING, "");
+	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEFUNCTION, all_data_cb);
+	curl_easy_setopt(httpstor->curl, CURLOPT_WRITEDATA, all_data);
+	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
-	rc = curl_easy_perform(s3c->curl);
+	rc = curl_easy_perform(httpstor->curl);
 
 	g_string_free(url, TRUE);
 	curl_slist_free_all(headers);
@@ -865,7 +865,7 @@ struct s3_keylist *s3c_keys(struct s3_client *s3c, const char *bucket,
 			}
 		}
 		else if (!_strcmp(node->name, "Contents"))
-			s3c_parse_key(doc, node->children, keylist);
+			httpstor_parse_key(doc, node->children, keylist);
 
 		node = node->next;
 	}

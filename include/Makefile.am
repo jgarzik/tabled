@@ -1,5 +1,5 @@
 
-include_HEADERS	= s3c.h
+include_HEADERS	= httpstor.h
 
 EXTRA_DIST	= elist.h httputil.h tdb.h
 

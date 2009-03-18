@@ -1,6 +1,6 @@
 Name:           tabled
 Version:        0.3git
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        Distributed key/value table service
 
 Group:          System Environment/Base
@@ -86,6 +86,9 @@ fi
 %{_includedir}/*.h
 
 %changelog
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-3%{?dist}
+- rename lib to libhttpstor
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-2%{?dist}
 - package and ship libs3c
 
