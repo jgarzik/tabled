@@ -11,12 +11,16 @@ Makefile.in
 INSTALL
 config.log
 config.status
+config.guess
+config.sub
 configure
 depcomp
 install-sh
 missing
 push
 stamp-h1
+libtool
+ltmain.sh
 
 # app-specific
 tabled

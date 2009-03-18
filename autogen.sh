@@ -9,3 +9,4 @@ aclocal
 autoheader
 automake --gnu --add-missing --copy
 autoconf
+libtoolize --force

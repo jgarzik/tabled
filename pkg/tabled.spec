@@ -1,6 +1,6 @@
 Name:           tabled
 Version:        0.3git
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Distributed key/value table service
 
 Group:          System Environment/Base
@@ -52,6 +52,7 @@ make -s check
 rm -rf $RPM_BUILD_ROOT
 
 %post
+/sbin/ldconfig
 # must be in chkconfig on
 /sbin/chkconfig --add tabled
 
@@ -62,6 +63,7 @@ if [ "$1" = 0 ] ; then
 fi
 
 %postun
+/sbin/ldconfig
 if [ "$1" -ge "1" ]; then
 	/sbin/service tabled condrestart >/dev/null 2>&1 ||:
 fi
@@ -71,14 +73,22 @@ fi
 %doc README NEWS doc/*.txt
 %{_sbindir}/tabled
 %{_sbindir}/tdbadm
+%{_libdir}/lib*.so.*
 %attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/tabled
 %attr(0644,root,root)           %{_sysconfdir}/sysconfig/tabled
 
 %files devel
 %defattr(-,root,root,0644)
+%{_libdir}/lib*.so
+%{_libdir}/lib*.a
+%{_libdir}/lib*.la
+%{_libdir}/pkgconfig/*
 %{_includedir}/*.h
 
 %changelog
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-2%{?dist}
+- package and ship libs3c
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1%{?dist}
 - initial release
 

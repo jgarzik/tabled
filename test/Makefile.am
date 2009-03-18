@@ -25,7 +25,7 @@ TESTS =				\
 
 check_PROGRAMS		= basic-bucket basic-object it-works
 
-TESTLDADD		= ../lib/libs3c.a	\
+TESTLDADD		= ../lib/libs3c.la	\
 			  ../lib/libhttputil.a	\
 			  @LIBCURL@ @GLIB_LIBS@ @CRYPTO_LIBS@ @XML_LIBS@
 basic_bucket_LDADD	= $(TESTLDADD)

@@ -1,2 +1,7 @@
+*.lo
+*.la
+.libs
 libhttputil.a
 libs3c.a
+libs3c-uninstalled.pc
+libs3c.pc
