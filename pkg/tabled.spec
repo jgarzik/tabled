@@ -14,7 +14,7 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:  db4-devel libevent-devel glib2-devel
 
 %description
-Coarse locking daemon.
+Distributed key/value table service
 
 %package devel
 Summary: Header files, libraries and development documentation for %{name}
