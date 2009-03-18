@@ -1,0 +1,6 @@
+# specify additional command line arguments for tabled
+#
+
+#example: 
+#OPTS="--debug"
+
