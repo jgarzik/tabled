@@ -51,7 +51,6 @@
 #define PROGRAM_NAME "tabled"
 
 #define MY_ENDPOINT "pretzel.yyz.us"
-#define TABLED_DEF_PORT "8080"
 
 const char *argp_program_version = PACKAGE_VERSION;
 
@@ -67,18 +66,14 @@ struct server_socket {
 };
 
 static struct argp_option options[] = {
-	{ "data", 'd', "DIRECTORY", 0,
-	  "Store data in DIRECTORY" },
+	{ "config", 'C', "/etc/tabled.conf", 0,
+	  "Configuration file" },
 	{ "debug", 'D', NULL, 0,
 	  "Enable debug output" },
-	{ "foreground", 'F', NULL, 0,
-	  "Run in foreground, do not fork" },
-	{ "port", 'p', "PORT", 0,
-	  "bind to port PORT" },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE" },
-	{ "tdb", 't', "DIRECTORY", 0,
-	  "Store TDB metadata in DIRECTORY" },
+	{ "foreground", 'F', NULL, 0,
+	  "Run in foreground, do not fork" },
 	{ }
 };
 
@@ -97,10 +92,7 @@ uint64_t objid_counter;
 int debugging = 0;
 
 struct server tabled_srv = {
-	.data_dir		= "/spare/tmp/tabled/lib",
-	.tdb_dir		= "/spare/tmp/tabled/lib/tdb",
-	.pid_file		= "/var/run/tabled.pid",
-	.port			= TABLED_DEF_PORT,
+	.config			= "/etc/tabled.conf",
 };
 
 struct compiled_pat patterns[] = {
@@ -171,8 +163,8 @@ static struct {
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	switch(key) {
-	case 'd':
-		tabled_srv.data_dir = arg;
+	case 'C':
+		tabled_srv.config = arg;
 		break;
 	case 'D':
 		debugging = 1;
@@ -180,19 +172,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'F':
 		tabled_srv.flags |= SFL_FOREGROUND;
 		break;
-	case 'p':
-		if (atoi(arg) > 0 && atoi(arg) < 65536)
-			tabled_srv.port = arg;
-		else {
-			fprintf(stderr, "invalid port %s\n", arg);
-			argp_usage(state);
-		}
-		break;
 	case 'P':
-		tabled_srv.pid_file = arg;
-		break;
-	case 't':
-		tabled_srv.tdb_dir = arg;
+		tabled_srv.pid_file = strdup(arg);
 		break;
 	case ARGP_KEY_ARG:
 		argp_usage(state);	/* too many args */
@@ -1319,7 +1300,7 @@ static void compile_patterns(void)
 		re = pcre_compile(patterns[i].str, patterns[i].options,
 				  &error, &erroffset, NULL);
 		if (!re) {
-			syslog(LOG_ERR, "BUG: pattern compile %d failed", i);
+			fprintf(stderr, "BUG: pattern compile %d failed", i);
 			exit(1);
 		}
 
@@ -1342,6 +1323,8 @@ int main (int argc, char *argv[])
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
 
+	compile_patterns();
+
 	/*
 	 * parse command line
 	 */
@@ -1353,15 +1336,20 @@ int main (int argc, char *argv[])
 	}
 
 	/*
-	 * open syslog, background outselves, write PID file ASAP
+	 * open syslog (currently does not depend on command line, but still)
 	 */
-
 	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
-
 	if (debugging)
 		syslog(LOG_INFO, "Verbose debug output enabled");
 
-	compile_patterns();
+	/*
+	 * now we can parse the configuration, errors to syslog
+	 */
+	read_config();
+
+	/*
+	 * background outselves, write PID file ASAP
+	 */
 
 	if ((!(tabled_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
 		syslogerr("daemon");
@@ -1393,7 +1381,8 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_pid;
 
-	syslog(LOG_INFO, "initialized");
+	syslog(LOG_INFO, "initialized (%s)",
+	   (tabled_srv.flags & SFL_FOREGROUND)? "fg": "bg");
 
 	while (server_running) {
 		event_dispatch();
@@ -1404,14 +1393,15 @@ int main (int argc, char *argv[])
 		}
 	}
 
-
 	syslog(LOG_INFO, "shutting down");
-
-	tdb_done();
 
 	rc = 0;
 
+/* err_cld_session: */
+	/* net_close(); */
 err_out_pid:
+	tdb_done();
+/* err_tdb_init: */
 	unlink(tabled_srv.pid_file);
 err_out:
 	closelog();

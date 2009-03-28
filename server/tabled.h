@@ -146,13 +146,20 @@ struct server_stats {
 	unsigned long		opt_write;	/* optimistic writes */
 };
 
+struct listen_cfg {
+	/* bool			encrypt; */
+	/* char			*host; */
+	char			*port;
+};
+
 struct server {
 	unsigned long		flags;		/* SFL_xxx above */
+
+	char			*config;	/* config file (static) */
 
 	char			*data_dir;	/* database/log dir */
 	char			*tdb_dir;	/* TDB metadata database dir */
 	char			*pid_file;	/* PID file */
-
 	char			*port;		/* bind port */
 
 	struct database		*db;		/* database handle */
@@ -226,5 +233,8 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
+
+/* config.c */
+void read_config(void);
 
 #endif /* __TABLED_H__ */

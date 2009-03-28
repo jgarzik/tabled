@@ -2,22 +2,24 @@
 Setup instructions
 ==================
 
-The default dir hierarchy looks like this:
+*) Copy configuration file from doc/etc.tabled.conf to /etc/tabled.conf
+   and edit to suit (see configurable items below).
 
-data_dir               = /spare/tmp/tabled/lib
-tdb_dir                = /spare/tmp/tabled/lib/tdb
-pid_file               = /spare/tmp/tabled/run/tabled.pid
-
-
-*) Create/choose location for process-id file.  Pass this to the
-   daemon using the argument --pid=FILE
+*) The tabled writes its pid to /var/run/tabled.pid by default.
+   If you don't like the location, change it with <PID> tag.
 
 *) Create/choose data directory, where raw object data is stored.
-   Pass this to the daemon using the argument --data=DIRECTORY
+   This is set with the <Data> tag.
 
 *) Create/choose TDB data directory, where Berkeley DB stores
-   data and metadata.  Pass this to the daemon using the argument
-   --tdb=DIRECTORY
+   data and metadata. Change this location with <TDB> tag.
+
+*) Select the port to listen, if desired. This is done using the <Listen>
+   element:
+
+	<Listen>
+		<Port>80</Port>
+	</Listen>
 
 *) Initialize TDB, the metadata database.  Load user/password pairs
    into TDB, using tdbadm utility.  The user/password pairs are

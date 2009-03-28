@@ -6,8 +6,14 @@ then
 	exit 1
 fi
 
-../server/tabled -P tabled.pid -d "$PWD/data" -t "$PWD/data/tdb" \
-		 -p 18080 --debug
+cat <<EOF >tabled.conf
+<PID>tabled.pid</PID>
+<Listen><Port>18080</Port></Listen>
+<Data>data</Data>
+<TDB>data/tdb</TDB>
+EOF
+
+../server/tabled -C tabled.conf
 
 sleep 3
 
