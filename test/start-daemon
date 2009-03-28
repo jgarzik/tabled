@@ -6,14 +6,7 @@ then
 	exit 1
 fi
 
-cat <<EOF >tabled.conf
-<PID>tabled.pid</PID>
-<Listen><Port>18080</Port></Listen>
-<Data>data</Data>
-<TDB>data/tdb</TDB>
-EOF
-
-../server/tabled -C tabled.conf
+../server/tabled -C $top_srcdir/test/tabled-test.conf
 
 sleep 3
 

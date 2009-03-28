@@ -1,7 +1,5 @@
 #!/bin/sh
 
-rm -f tabled.conf
-
 if [ ! -f tabled.pid ]
 then
 	echo no daemon pid file found.
