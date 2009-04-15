@@ -416,6 +416,7 @@ static bool object_put_end(struct client *cli)
 
 	/* store object metadata in database */
 	rc = objs->put(objs, txn, &pkey, &pval, 0);
+	free(obj);
 	if (rc) {
 		dbenv->err(dbenv, rc, "objs->put");
 		goto err_out_rb;
