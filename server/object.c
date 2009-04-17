@@ -32,10 +32,15 @@
 #include <openssl/md5.h>
 #include "tabled.h"
 
-static int object_find(DB_TXN *txn, const char *bucket, const char *key)
+/*
+ * If successful, return the name.
+ */
+static int object_find(DB_TXN *txn, const char *bucket, const char *key,
+		       char **pname)
 {
 	DB *objs = tdb.objs;
 	struct db_obj_key *okey;
+	struct db_obj_ent *obj;
 	size_t alloc_len;
 	DBT pkey, pval;
 	int rc;
@@ -56,6 +61,12 @@ static int object_find(DB_TXN *txn, const char *bucket, const char *key)
 		return 1;
 	if (rc)
 		return -1;
+
+	if (pname) {
+		obj = pval.data;
+		if ((*pname = strdup(obj->name)) == NULL)
+			return -1;
+	}
 	return 0;
 }
 
@@ -273,6 +284,7 @@ static bool object_put_end(struct client *cli)
 	enum errcode err = InternalError;
 	struct db_obj_ent *obj;
 	struct db_obj_key *obj_key;
+	char *obj_name;
 	size_t alloc_len;
 	DB_ENV *dbenv = tdb.env;
 	DBT pkey, pval;
@@ -327,7 +339,7 @@ static bool object_put_end(struct client *cli)
 		goto err_out;
 	}
 
-	rc = object_find(txn, cli->out_bucket, cli->out_key);
+	rc = object_find(txn, cli->out_bucket, cli->out_key, &obj_name);
 	if (rc < 0) {
 		objs->err(objs, rc, "object_find");
 		goto err_out_rb;
@@ -337,11 +349,10 @@ static bool object_put_end(struct client *cli)
 	 * remember existing object filename for later unlinking
 	 */
 	if (rc == 0) {
-		obj = pval.data;
-
 		/* build data filename, for later use */
-		fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj->name) + 2);
-		sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
+		fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj_name) + 2);
+		sprintf(fn, "%s/%s", tabled_srv.data_dir, obj_name);
+		free(obj_name);
 
 		/* delete object metadata, ACLs */
 		if (!__object_del(txn, cli->out_bucket, cli->out_key))
@@ -637,7 +648,7 @@ static bool object_put_acls(struct client *cli, const char *user,
 		goto err_out;
 	}
 
-	rc = object_find(txn, bucket, key);
+	rc = object_find(txn, bucket, key, NULL);
 	if (rc < 0) {
 		objs->err(objs, rc, "object_find");
 		goto err_out_rb;
