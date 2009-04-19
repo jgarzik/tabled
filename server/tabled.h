@@ -165,6 +165,7 @@ struct server {
 	struct database		*db;		/* database handle */
 
 	GList			*sockets;
+	uint64_t		object_count;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
@@ -219,9 +220,11 @@ extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 extern void tdb_done(void);
 extern void tdb_init(void);
 
+uint64_t objid_next(void);
+void objid_init(void);
+
 /* server.c */
 extern int debugging;
-extern uint64_t objid_counter;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);

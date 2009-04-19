@@ -1312,13 +1312,9 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
-	uint64_t r1, r2;
 
-	/* initialize initial object id to random number */
+	/* initialize the random number as needed for libchunkdc */
 	srand(time(NULL));
-	r1 = rand();
-	r2 = rand();
-	objid_counter = (r1 << 32) | (r2 & 0xffffffff);
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1372,6 +1368,7 @@ int main (int argc, char *argv[])
 	event_init();
 
 	tdb_init();
+	objid_init();
 
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
 	add_chkpt_timer();

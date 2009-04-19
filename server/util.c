@@ -36,6 +36,8 @@
 
 #include "tabled.h"
 
+#define OBJID_STEP   500
+
 struct tabledb tdb;
 
 size_t strlist_len(GList *l)
@@ -176,5 +178,133 @@ void tdb_init(void)
 void tdb_done(void)
 {
 	tdb_close(&tdb);
+}
+
+uint64_t objid_next(void)
+{
+	DB_ENV *dbenv = tdb.env;
+	DB *oids = tdb.oids;
+	DB_TXN *txn = NULL;
+	DBT pkey, pval;
+	int recno;
+	uint64_t datum;		/* LE */
+	uint64_t objcount;	/* Host order */
+	int rc;
+
+	recno = 1;
+
+	objcount = ++tabled_srv.object_count;
+	if (objcount % OBJID_STEP != 0)
+		return objcount;
+
+	datum = GUINT64_TO_LE(objcount);
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = &recno;
+	pkey.size = sizeof(recno);
+	pval.data = &datum;
+	pval.size = sizeof(uint64_t);
+
+	/* begin trans */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		goto err_out_begin;
+	}
+
+	/* write the counter */
+	rc = oids->put(oids, txn, &pkey, &pval, 0);
+	if (rc) {
+		syslog(LOG_INFO, "objid_next DB put error %d", rc);
+		goto err_out_put;
+	}
+
+	/* end trans */
+	rc = txn->commit(txn, 0);
+	if (rc)
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+	return objcount;
+
+err_out_put:
+	rc = txn->abort(txn);
+	if (rc)
+		syslog(LOG_INFO, "objid_new abort error %d", rc);
+err_out_begin:
+	return objcount;
+}
+
+/*
+ * We could auto-init, but the explicit initialization makes aborts
+ * more debuggable and less unexpected, as they happen before requests come.
+ */
+void objid_init(void)
+{
+	DB_ENV *dbenv = tdb.env;
+	DB *oids = tdb.oids;
+	DB_TXN *txn = NULL;
+	DBT pkey, pval;
+	int recno;
+	uint64_t objcount;	/* Host order */
+	int rc;
+
+	recno = 1;
+
+	memset(&pkey, 0, sizeof(pkey));
+	memset(&pval, 0, sizeof(pval));
+	pkey.data = &recno;
+	pkey.size = sizeof(recno);
+
+	/* begin trans */
+	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
+		exit(1);
+	}
+
+	/* read existing counter, if any */
+	rc = oids->get(oids, txn, &pkey, &pval, DB_RMW);
+	if (rc == DB_NOTFOUND) {
+		objcount = 1;
+	} else if (rc) {
+		exit(1);
+	} else {
+		if (pval.size != sizeof(uint64_t))
+			exit(1);
+		objcount = GUINT64_FROM_LE(*(uint64_t *)pval.data);
+		if (debugging)
+			syslog(LOG_INFO, "objid_init initial %llX",
+			       (unsigned long long) objcount);
+		objcount += OBJID_STEP;
+
+		/*
+		 * Commit new step block for two reasons:
+		 *  - if we crash before next step commit
+		 *  - better verify now that writing IDs works ok
+		 */
+		*(uint64_t *)pval.data = GUINT64_TO_LE(objcount);
+
+		rc = oids->put(oids, txn, &pkey, &pval, 0);
+		if (rc) {
+			dbenv->err(dbenv, rc, "oids->put");
+			rc = txn->abort(txn);
+			if (rc)
+				dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+			exit(1);
+		}
+	}
+
+	rc = txn->commit(txn, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "DB_ENV->txn_commit");
+		exit(1);	/* Quit before something unknown blows up. */
+	}
+
+	if (objcount & 0xff00000000000000) {
+		syslog(LOG_ERR, "Dangerous objid %llX\n",
+		       (unsigned long long) objcount);
+		exit(1);
+	}
+	tabled_srv.object_count = objcount;
 }
 

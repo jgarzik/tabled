@@ -540,22 +540,23 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 {
 	char *fn = NULL;
 	long avail;
+	uint64_t objid;
 
 	if (!user || !has_access(user, bucket, NULL, "WRITE"))
 		return cli_err(cli, AccessDenied);
 
-	while (cli->out_fd < 0) {
-		objid_counter++;
+	objid = objid_next();
+	if (asprintf(&fn, "%s/%016llX", tabled_srv.data_dir,
+		     (unsigned long long) objid) < 0) {
+		syslog(LOG_ERR, "OOM in object_put");
+		return cli_err(cli, InternalError);
+	}
 
+	cli->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (cli->out_fd < 0) {
+		syslog(LOG_ERR, "cannot open object store for %s", fn);
 		free(fn);
-
-		if (asprintf(&fn, "%s/%016llX", tabled_srv.data_dir,
-			     (unsigned long long) objid_counter) < 0) {
-			syslog(LOG_ERR, "OOM in object_put");
-			return cli_err(cli, InternalError);
-		}
-
-		cli->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
+		return cli_err(cli, InternalError);
 	}
 
 	cli->out_fn = fn;
@@ -563,7 +564,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 	cli->out_key = strdup(key);
 	MD5_Init(&cli->out_md5);
 	cli->out_len = content_len;
-	cli->out_objid = objid_counter;
+	cli->out_objid = objid;
 	cli->out_user = strdup(user);
 
 	/* handle Expect: 100-continue header, by unconditionally

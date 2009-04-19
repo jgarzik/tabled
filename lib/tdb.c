@@ -66,11 +66,13 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 
 	db = *db_out;
 
-	rc = db->set_pagesize(db, page_size);
-	if (rc) {
-		db->err(db, rc, "db->set_pagesize");
-		rc = -EIO;
-		goto err_out;
+	if (page_size) {
+		rc = db->set_pagesize(db, page_size);
+		if (rc) {
+			db->err(db, rc, "db->set_pagesize");
+			rc = -EIO;
+			goto err_out;
+		}
 	}
 
 	/* fix everything as little endian */
@@ -217,8 +219,14 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	if (rc)
 		goto err_out_acls;
 
+	rc = open_db(dbenv, &tdb->oids, "oids", 0, DB_RECNO, flags, 0);
+	if (rc)
+		goto err_out_obj;
+
 	return 0;
 
+err_out_obj:
+	tdb->objs->close(tdb->acls, 0);
 err_out_acls:
 	tdb->acls->close(tdb->acls, 0);
 err_out_bidx:
@@ -234,6 +242,7 @@ err_out:
 
 void tdb_close(struct tabledb *tdb)
 {
+	tdb->oids->close(tdb->oids, 0);
 	tdb->objs->close(tdb->objs, 0);
 	tdb->acls->close(tdb->acls, 0);
 	tdb->buckets_idx->close(tdb->buckets_idx, 0);
@@ -247,5 +256,6 @@ void tdb_close(struct tabledb *tdb)
 	tdb->buckets_idx = NULL;
 	tdb->acls = NULL;
 	tdb->objs = NULL;
+	tdb->oids = NULL;
 }
 

@@ -19,7 +19,7 @@
  *
  */
 
-
+#include <stdint.h>
 #include <stdbool.h>
 #include <db.h>
 
@@ -65,6 +65,13 @@ struct db_acl_ent {
 
 #define DB_ACL_ANON	"*"
 
+struct db_oid_key {
+	uint64_t	oid;
+};
+struct db_oid_ent {
+	uint64_t	oid;
+};
+
 struct tabledb {
 	char		*home;			/* database home dir */
 	char		*key;			/* database AES key */
@@ -75,6 +82,7 @@ struct tabledb {
 	DB		*buckets_idx;		/* buckets owner idx */
 	DB		*acls;			/* acl db */
 	DB		*objs;			/* object metadata db */
+	DB		*oids;			/* object ID db */
 };
 
 
