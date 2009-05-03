@@ -20,7 +20,6 @@
 #define _GNU_SOURCE
 #include "tabled-config.h"
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <fcntl.h>
@@ -45,6 +44,7 @@
 #include <glib.h>
 #include <openssl/md5.h>
 #include <openssl/hmac.h>
+#include <openssl/ssl.h>
 #include <elist.h>
 #include "tabled.h"
 
@@ -88,7 +88,6 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
-uint64_t objid_counter;
 int debugging = 0;
 
 struct server tabled_srv = {
@@ -317,9 +316,10 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 {
 	bool rcb = false;
 
+	cli->write_cnt -= tmp->len;
+	list_del(&tmp->node);
 	if (tmp->cb)
 		rcb = tmp->cb(cli, tmp, done);
-	list_del(&tmp->node);
 	free(tmp);
 
 	return rcb;
@@ -365,8 +365,6 @@ static struct client *cli_alloc(void)
 	cli->state = evt_read_req;
 	INIT_LIST_HEAD(&cli->write_q);
 	cli->req_ptr = cli->req_buf;
-	cli->out_fd = -1;
-	cli->in_fd = -1;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
 
 	return cli;
@@ -522,10 +520,15 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	wr->len = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
-	INIT_LIST_HEAD(&wr->node);
 	list_add_tail(&wr->node, &cli->write_q);
+	cli->write_cnt += wr->len;
 
 	return 0;
+}
+
+size_t cli_wqueued(struct client *cli)
+{
+	return cli->write_cnt;
 }
 
 static int cli_read(struct client *cli)
@@ -1313,6 +1316,8 @@ int main (int argc, char *argv[])
 	error_t aprc;
 	int rc = 1;
 
+	INIT_LIST_HEAD(&tabled_srv.all_stor);
+
 	/* initialize the random number as needed for libchunkdc */
 	srand(time(NULL));
 
@@ -1320,6 +1325,9 @@ int main (int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	compile_patterns();
+
+	SSL_library_init();
+	SSL_load_error_strings();
 
 	/*
 	 * parse command line
@@ -1369,6 +1377,7 @@ int main (int argc, char *argv[])
 
 	tdb_init();
 	objid_init();
+	stor_init();
 
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
 	add_chkpt_timer();
@@ -1394,7 +1403,7 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-/* err_cld_session: */
+// err_cld_session:
 	/* net_close(); */
 err_out_pid:
 	tdb_done();

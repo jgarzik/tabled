@@ -23,13 +23,29 @@
 #include <stdbool.h>
 #include <db.h>
 
+#define MAXWAY      3
+#define INSIZE    120				/* arbitrary, needs benchmark */
+
+#define DB_OBJ_INLINE        0x1
+
+struct db_obj_addr {
+	uint32_t	nid;			/* 0 == absent */
+	uint64_t	oid;
+};
+
 struct db_obj_key {
 	char		bucket[64];		/* bucket */
 	char		key[0];			/* object key */
 };
 
 struct db_obj_ent {
-	char		name[128];		/* local filename (no dirs) */
+	uint32_t	flags;
+	uint64_t	size;
+	uint64_t	mtime;		/* UNIX time, but in microseconds */
+	union {
+		struct db_obj_addr avec[MAXWAY];
+		unsigned char indata[INSIZE];
+	} d;
 	char		bucket[64];		/* bucket */
 	char		owner[64];		/* object owner */
 	char		md5[40];		/* data checksum */

@@ -5,6 +5,7 @@ INCLUDES	= -I$(top_srcdir)/include	\
 EXTRA_DIST =			\
 	test.h			\
 	users.data		\
+	chunkd-test.conf	\
 	tabled-test.conf	\
 	prep-db			\
 	start-daemon		\

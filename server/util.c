@@ -22,7 +22,6 @@
 #include "tabled-config.h"
 
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -267,10 +266,13 @@ void objid_init(void)
 	if (rc == DB_NOTFOUND) {
 		objcount = 1;
 	} else if (rc) {
+		syslog(LOG_ERR, "objid_init get error %d", rc);
 		exit(1);
 	} else {
-		if (pval.size != sizeof(uint64_t))
+		if (pval.size != sizeof(uint64_t)) {
+			syslog(LOG_ERR, "objid_init got size %d", pval.size);
 			exit(1);
+		}
 		objcount = GUINT64_FROM_LE(*(uint64_t *)pval.data);
 		if (debugging)
 			syslog(LOG_INFO, "objid_init initial %llX",

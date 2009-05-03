@@ -35,6 +35,8 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
+#define ADDRSIZE	24	/* Enough for IPv6, including port. */
+
 enum {
 	TABLED_PGSZ_INODE	= 4096,
 	TABLED_PGSZ_SESSION	= 4096,
@@ -77,6 +79,17 @@ struct compiled_pat {
 	pcre		*re;
 };
 
+struct storage_node {
+	struct list_head	all_link;
+	unsigned		alen;
+	union {
+		struct sockaddr addr;
+		unsigned char x[ADDRSIZE];
+	} a;
+	char *hostname;		/* Only used because stc_new is overly smart. */
+	int nchu;		/* number of open_chunk */
+};
+
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
 typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
 
@@ -87,6 +100,23 @@ struct client_write {
 	void			*cb_data;	/* data passed to cb */
 
 	struct list_head	node;
+};
+
+/* an open chunkd client */
+struct open_chunk {
+	struct st_client	*stc;
+	struct storage_node	*node;
+
+	uint64_t		wtogo;
+	uint64_t		wkey;
+	int			wfd;
+
+	uint64_t		roff;
+	uint64_t		rsize;
+	void (*rcb)(struct open_chunk *);
+	int			rfd;
+	int			r_armed;
+	struct event		revt;
 };
 
 /* internal client socket state */
@@ -111,6 +141,7 @@ struct client {
 	struct event		write_ev;
 
 	struct list_head	write_q;	/* list of async writes */
+	size_t			write_cnt;	/* water level */
 	bool			writing;
 
 	unsigned int		req_used;	/* amount of req_buf in use */
@@ -119,17 +150,18 @@ struct client {
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
 
-	int			out_fd;		/* current output file */
-	char			*out_fn;	/* current output filename */
+	struct open_chunk	out_ce;		/* just one for now FIXME */
 	char			*out_bucket;
 	char			*out_key;
 	char			*out_user;
 	MD5_CTX			out_md5;
 	long			out_len;
+	uint64_t		out_size;
 	uint64_t		out_objid;
 
-	int			in_fd;
-	char			*in_fn;
+	struct open_chunk	in_ce;
+	unsigned char		*in_mem;
+	uint64_t		in_objid;
 	long			in_len;
 
 	/* we put the big arrays and objects at the end... */
@@ -157,14 +189,16 @@ struct server {
 
 	char			*config;	/* config file (static) */
 
-	char			*data_dir;	/* database/log dir */
 	char			*tdb_dir;	/* TDB metadata database dir */
 	char			*pid_file;	/* PID file */
 	char			*port;		/* bind port */
+	char			*chunk_user;	/* username for stc_new */
+	char			*chunk_key;	/* key for stc_new */
 
 	struct database		*db;		/* database handle */
 
 	GList			*sockets;
+	struct list_head	all_stor;	/* struct storage_node */
 	uint64_t		object_count;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
@@ -232,6 +266,7 @@ extern bool cli_resp_xml(struct client *cli, int http_status,
 			 GList *content);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
+extern size_t cli_wqueued(struct client *cli);
 extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
@@ -239,5 +274,20 @@ extern int cli_req_avail(struct client *cli);
 
 /* config.c */
 void read_config(void);
+
+/* storage.c */
+extern int stor_open(struct open_chunk *cep, struct storage_node *stn);
+extern int stor_open_read(struct open_chunk *cep,
+			  void (*cb)(struct open_chunk *),
+			  uint64_t key, uint64_t *psz);
+extern void stor_close(struct open_chunk *cep);
+extern void stor_abort(struct open_chunk *cep);
+extern int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size);
+extern ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len);
+extern bool stor_put_end(struct open_chunk *cep);
+extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);
+extern int stor_obj_del(struct storage_node *stn, uint64_t key);
+extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
+extern void stor_init(void);
 
 #endif /* __TABLED_H__ */

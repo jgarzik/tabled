@@ -20,7 +20,6 @@
 #define _GNU_SOURCE
 #include "tabled-config.h"
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
@@ -772,9 +771,19 @@ struct bucket_list_info {
 	bool trunc;
 };
 
-static bool bucket_list_iter(const char *key, const char *name,
-			     const char *md5, struct bucket_list_info *bli)
+struct obj_vitals {
+	char			*key;
+	uint64_t		size;
+	uint64_t		mtime;
+	struct db_obj_addr	addr;
+	char			md5[40];
+};
+
+static bool bucket_list_iter(const char *key, struct obj_vitals *v,
+			     struct bucket_list_info *bli)
 {
+	struct obj_vitals *vitals;
+
 	if (bli->delim) {
 		const char *post, *end;
 		char *cpfx;
@@ -800,14 +809,14 @@ static bool bucket_list_iter(const char *key, const char *name,
 		if (bli->last_comp && (bli->last_comp_len == comp_len) &&
 		    !memcmp(post, bli->last_comp, comp_len)) {
 			GList *ltmp;
-			int i;
+			struct obj_vitals *vp;
 
 			--bli->n_keys;
-			for (i = 0; i < 3; i++) {
-				ltmp = g_list_last(bli->res);
-				free(ltmp->data);
-				bli->res = g_list_delete_link(bli->res, ltmp);
-			}
+			ltmp = g_list_last(bli->res);
+			vp = ltmp->data;
+			free(vp->key);
+			free(vp);
+			bli->res = g_list_delete_link(bli->res, ltmp);
 
 			g_hash_table_insert(bli->common_pfx, cpfx, NULL);
 
@@ -832,10 +841,15 @@ no_component:
 		return true;		/* stop traversal */
 	}
 
-	bli->res = g_list_append(bli->res, strdup(key));
-	bli->res = g_list_append(bli->res, strdup(name));
-	bli->res = g_list_append(bli->res, strdup(md5));
+	if (!(vitals = malloc(sizeof(struct obj_vitals))))
+		return false;
+	memcpy(vitals, v, sizeof(struct obj_vitals));
+	if (!(vitals->key = strdup(key))) {
+		free(vitals);
+		return false;
+	}
 
+	bli->res = g_list_append(bli->res, vitals);
 	bli->n_keys++;
 
 	return false;		/* continue traversal */
@@ -927,7 +941,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	/* iterate through each returned data row */
 	get_flags = DB_SET_RANGE;
 	while (1) {
-		char *key, *name, *md5;
+		struct obj_vitals v;
 		struct db_obj_key *tmpkey;
 		struct db_obj_ent *obj;
 
@@ -961,11 +975,14 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 			seen_prefix = true;
 		}
 
-		key = tmpkey->key;
-		name = obj->name;
-		md5 = obj->md5;
+		memset(&v, 0, sizeof(v));
+		strcpy(v.md5, obj->md5);
+		if (!(GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE))
+			memcpy(&v.addr, &obj->d.avec[0], sizeof(v.addr));
+		v.mtime = obj->mtime;
+		v.size = obj->size;
 
-		if (bucket_list_iter(key, name, md5, &bli))
+		if (bucket_list_iter(tmpkey->key, &v, &bli))
 			break;
 	}
 
@@ -1006,28 +1023,16 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 
 	tmpl = bli.res;
 	while (tmpl) {
-		char *key, *md5;
-		char *fn, *name, timestr[64];
-		struct stat st;
+		char timestr[64];
+		struct obj_vitals *vp;
 
-		key = tmpl->data;
+		vp = tmpl->data;
 		tmpl = tmpl->next;
 
-		name = tmpl->data;
-		tmpl = tmpl->next;
-
-		md5 = tmpl->data;
-		tmpl = tmpl->next;
-
-		if (asprintf(&fn, "%s/%s", tabled_srv.data_dir, name) < 0)
-			goto do_next;
-
-		if (stat(fn, &st) < 0) {
-			syslog(LOG_ERR, "blist stat(%s) failed: %s",
-				fn, strerror(errno));
-			st.st_mtime = 0;
-			st.st_size = 0;
-		}
+		/*
+		 * FIXME Use the vp->addr to verify that key still exists.
+		 * And if it doesn't, then what? (addr.nid can be 0 for inline)
+		 */
 
 		s = g_markup_printf_escaped(
                          "  <Contents>\r\n"
@@ -1042,20 +1047,17 @@ static bool bucket_list_keys(struct client *cli, const char *user,
                          "    </Owner>\r\n"
                          "  </Contents>\r\n",
 
-			 key,
-			 time2str(timestr, st.st_mtime),
-			 md5,
-			 (unsigned long long) st.st_size,
+			 vp->key,
+			 time2str(timestr, vp->mtime / 1000000),
+			 vp->md5,
+			 (unsigned long long) vp->size,
 			 user,
 			 user);
 
 		content = g_list_append(content, s);
 
-do_next:
-		free(key);
-		free(name);
-		free(md5);
-		free(fn);
+		free(vp->key);
+		free(vp);
 	}
 
 	g_list_free(bli.res);

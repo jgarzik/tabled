@@ -11,7 +11,8 @@ Source2:        tabled.init
 Source3:        tabled.sysconf
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
-BuildRequires:  db4-devel libevent-devel glib2-devel
+# N.B. We need chunkd to build, because our "make check" spawns a private copy.
+BuildRequires:  db4-devel libevent-devel glib2-devel chunkd chunkd-devel
 
 %description
 Distributed key/value table service

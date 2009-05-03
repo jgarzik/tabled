@@ -20,7 +20,6 @@
 #define _GNU_SOURCE
 #include "tabled-config.h"
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -33,14 +32,13 @@
 #include "tabled.h"
 
 /*
- * If successful, return the name.
+ * If successful, return the object (in DB representation).
  */
 static int object_find(DB_TXN *txn, const char *bucket, const char *key,
-		       char **pname)
+		       struct db_obj_ent *pobj)
 {
 	DB *objs = tdb.objs;
 	struct db_obj_key *okey;
-	struct db_obj_ent *obj;
 	size_t alloc_len;
 	DBT pkey, pval;
 	int rc;
@@ -62,11 +60,8 @@ static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 	if (rc)
 		return -1;
 
-	if (pname) {
-		obj = pval.data;
-		if ((*pname = strdup(obj->name)) == NULL)
-			return -1;
-	}
+	if (pobj)
+		memcpy(pobj, pval.data, sizeof(struct db_obj_ent));
 	return 0;
 }
 
@@ -125,17 +120,38 @@ bool object_del_acls(DB_TXN *txn, const char *bucket, const char *key)
 	return true;
 }
 
+static int object_unlink(struct db_obj_ent *obj)
+{
+	struct db_obj_addr *addr;
+	struct storage_node *stnode;
+
+	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE)
+		return 0;
+	/*
+	 * FIXME Iterate over all of avec[] when redundancy is added;
+	 * use nid to locate node in all_stor.
+	 */
+	addr = &obj->d.avec[0];
+
+	if (list_empty(&tabled_srv.all_stor))
+		return -EIO;
+	stnode = list_entry(tabled_srv.all_stor.next,
+			    struct storage_node, all_link);
+
+	return stor_obj_del(stnode, addr->oid);
+}
+
 bool object_del(struct client *cli, const char *user,
 		const char *bucket, const char *key)
 {
-	char timestr[64], *hdr, *fn;
+	char timestr[64], *hdr;
 	int rc;
 	enum errcode err = InternalError;
 	size_t alloc_len;
 	DB_ENV *dbenv = tdb.env;
 	DB *objs = tdb.objs;
 	struct db_obj_key *okey;
-	struct db_obj_ent *obj;
+	struct db_obj_ent obje;
 	DBT pkey, pval;
 	DB_TXN *txn = NULL;
 
@@ -169,11 +185,8 @@ bool object_del(struct client *cli, const char *user,
                 goto err_out;
 	}
 
-	obj = pval.data;
-
-	/* build data filename, for later use */
-	fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj->name) + 2);
-	sprintf(fn, "%s/%s", tabled_srv.data_dir, obj->name);
+	/* save object addresses, for later use */
+	memcpy(&obje, pval.data, sizeof(struct db_obj_ent));
 
 	if (!__object_del(txn, bucket, key))
 		goto err_out;
@@ -184,9 +197,9 @@ bool object_del(struct client *cli, const char *user,
 		return cli_err(cli, InternalError);
 	}
 
-	if (unlink(fn) < 0)
-		syslog(LOG_ERR, "object data(%s) unlink failed: %s",
-		       fn, strerror(errno));
+	if (object_unlink(&obje) < 0)
+		syslog(LOG_ERR, "object data(%llX) unlink failed",
+		       (unsigned long long) cli->in_objid);
 	if (asprintf(&hdr,
 "HTTP/%d.%d 204 x\r\n"
 "Content-Length: 0\r\n"
@@ -218,11 +231,8 @@ void cli_out_end(struct client *cli)
 	if (!cli)
 		return;
 
-	if (cli->out_fn) {
-		unlink(cli->out_fn);
-		free(cli->out_fn);
-		cli->out_fn = NULL;
-	}
+	stor_abort(&cli->out_ce);
+	stor_close(&cli->out_ce);
 
 	free(cli->out_bucket);
 	free(cli->out_key);
@@ -231,11 +241,6 @@ void cli_out_end(struct client *cli)
 	cli->out_user =
 	cli->out_bucket =
 	cli->out_key = NULL;
-
-	if (cli->out_fd >= 0) {
-		close(cli->out_fd);
-		cli->out_fd = -1;
-	}
 }
 
 static const char *copy_headers[] = {
@@ -278,13 +283,14 @@ static void append_hdr_string(GArray *string_lens, GByteArray *string_data,
 static bool object_put_end(struct client *cli)
 {
 	unsigned char md[MD5_DIGEST_LENGTH];
-	char objid_str[64], md5[33], timestr[64];
-	char *type, *hdr, *fn = NULL;
+	char md5[33], timestr[64];
+	char *type, *hdr;
 	int rc, i;
 	enum errcode err = InternalError;
 	struct db_obj_ent *obj;
 	struct db_obj_key *obj_key;
-	char *obj_name;
+	struct db_obj_ent oldobj;
+	bool delobj;
 	size_t alloc_len;
 	DB_ENV *dbenv = tdb.env;
 	DBT pkey, pval;
@@ -301,29 +307,25 @@ static bool object_put_end(struct client *cli)
 	else
 		cli->state = evt_dispose;
 
-	if (fsync(cli->out_fd) < 0) {
-		syslog(LOG_ERR, "fsync(%s) failed: %s",
-		       cli->out_fn, strerror(errno));
+	if (!stor_put_end(&cli->out_ce)) {
+		syslog(LOG_ERR, "Chunk sync failed");
 		goto err_out;
 	}
 
 	if (debugging) {
-		struct stat sst;
-		if (fstat(cli->out_fd, &sst) < 0)
-			syslog(LOG_ERR, "fstat(%s) failed: %s",
-			       cli->out_fn, strerror(errno));
+		/* FIXME how do we test for inline objects here? */
+		if (!stor_obj_test(&cli->out_ce, cli->out_objid))
+			syslog(LOG_ERR, "Stat (%llX) failed",
+			       (unsigned long long) cli->out_objid);
 		else
-			syslog(LOG_DEBUG, "STORED %s, size %llu",
-			       cli->out_fn,
-			       (unsigned long long) sst.st_size);
+			syslog(LOG_DEBUG, "STORED %llX, size -",
+			       (unsigned long long) cli->out_objid);
 	}
 
-	close(cli->out_fd);
-	cli->out_fd = -1;
+	stor_close(&cli->out_ce);
 
 	MD5_Final(md, &cli->out_md5);
 
-	sprintf(objid_str, "%016llX", (unsigned long long) cli->out_objid);
 	md5str(md, md5);
 
 	type = req_hdr(&cli->req, "content-type");
@@ -339,7 +341,8 @@ static bool object_put_end(struct client *cli)
 		goto err_out;
 	}
 
-	rc = object_find(txn, cli->out_bucket, cli->out_key, &obj_name);
+	delobj = false;
+	rc = object_find(txn, cli->out_bucket, cli->out_key, &oldobj);
 	if (rc < 0) {
 		objs->err(objs, rc, "object_find");
 		goto err_out_rb;
@@ -349,10 +352,7 @@ static bool object_put_end(struct client *cli)
 	 * remember existing object filename for later unlinking
 	 */
 	if (rc == 0) {
-		/* build data filename, for later use */
-		fn = alloca(strlen(tabled_srv.data_dir) + strlen(obj_name) + 2);
-		sprintf(fn, "%s/%s", tabled_srv.data_dir, obj_name);
-		free(obj_name);
+		delobj = true;
 
 		/* delete object metadata, ACLs */
 		if (!__object_del(txn, cli->out_bucket, cli->out_key))
@@ -399,7 +399,10 @@ static bool object_put_end(struct client *cli)
 		goto err_out_rb;
 
 	/* encode object header */
-	strncpy(obj->name, objid_str, sizeof(obj->name));
+	obj->size = cli->out_size;
+	obj->mtime = (uint64_t)time(NULL) * 1000000;
+	obj->d.avec[0].nid = 1;		/* FIXME */
+	obj->d.avec[0].oid = cli->out_objid;
 	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
 	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
 	strncpy(obj->md5, md5, sizeof(obj->md5));
@@ -443,17 +446,16 @@ static bool object_put_end(struct client *cli)
 	/* now that all database manipulation has been a success,
 	 * we can remove the old object (overwritten) data.
 	 */
-	if (fn && (unlink(fn) < 0))
-		syslog(LOG_ERR, "object data(%s) orphaned: %s",
-		       fn, strerror(errno));
+	if (delobj && object_unlink(&oldobj) < 0) {
+		syslog(LOG_ERR, "object data(%llX) orphaned",
+		       (unsigned long long) oldobj.d.avec[0].oid);
+	}
 
-	free(cli->out_fn);
 	free(cli->out_bucket);
 	free(cli->out_key);
 	free(cli->out_user);
 
 	cli->out_user =
-	cli->out_fn =
 	cli->out_bucket =
 	cli->out_key = NULL;
 
@@ -514,7 +516,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 	}
 
 	while (avail > 0) {
-		bytes = write(cli->out_fd, p, avail);
+		bytes = stor_put_buf(&cli->out_ce, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
 			syslog(LOG_ERR, "write(2) error in HTTP data-in: %s",
@@ -538,32 +540,42 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 bool object_put_body(struct client *cli, const char *user, const char *bucket,
 		const char *key, long content_len, bool expect_cont)
 {
-	char *fn = NULL;
 	long avail;
 	uint64_t objid;
+	struct storage_node *stnode;
+	int rc;
 
 	if (!user || !has_access(user, bucket, NULL, "WRITE"))
 		return cli_err(cli, AccessDenied);
 
 	objid = objid_next();
-	if (asprintf(&fn, "%s/%016llX", tabled_srv.data_dir,
-		     (unsigned long long) objid) < 0) {
-		syslog(LOG_ERR, "OOM in object_put");
+
+	/* FIXME picking the first node until the redundancy is implemented */
+	if (list_empty(&tabled_srv.all_stor)) {
+		syslog(LOG_ERR, "No chunk nodes");
+		return cli_err(cli, InternalError);
+	}
+	stnode = list_entry(tabled_srv.all_stor.next,
+			    struct storage_node, all_link);
+
+	rc = stor_open(&cli->out_ce, stnode);
+	if (rc != 0) {
+		syslog(LOG_WARNING, "Cannot open chunk (%d)", rc);
 		return cli_err(cli, InternalError);
 	}
 
-	cli->out_fd = open(fn, O_WRONLY | O_CREAT | O_EXCL, 0600);
-	if (cli->out_fd < 0) {
-		syslog(LOG_ERR, "cannot open object store for %s", fn);
-		free(fn);
+	rc = stor_put_start(&cli->out_ce, objid, content_len);
+	if (rc != 0) {
+		syslog(LOG_WARNING, "Cannot start putting for %llX (%d)",
+		       (unsigned long long) objid, rc);
 		return cli_err(cli, InternalError);
 	}
 
-	cli->out_fn = fn;
 	cli->out_bucket = strdup(bucket);
 	cli->out_key = strdup(key);
 	MD5_Init(&cli->out_md5);
 	cli->out_len = content_len;
+	cli->out_size = content_len;
 	cli->out_objid = objid;
 	cli->out_user = strdup(user);
 
@@ -585,7 +597,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 		ssize_t bytes;
 
 		while (avail > 0) {
-			bytes = write(cli->out_fd, cli->req_ptr, avail);
+			bytes = stor_put_buf(&cli->out_ce, cli->req_ptr, avail);
 			if (bytes < 0) {
 				cli_out_end(cli);
 				syslog(LOG_ERR, "write(2) error in object_put: %s",
@@ -734,67 +746,97 @@ void cli_in_end(struct client *cli)
 	if (!cli)
 		return;
 
-	if (cli->in_fd >= 0) {
-		close(cli->in_fd);
-		cli->in_fd = -1;
-	}
-
-	free(cli->in_fn);
-	cli->in_fn = NULL;
+	stor_close(&cli->in_ce);
 }
 
 static bool object_get_more(struct client *cli, struct client_write *wr,
-			    bool done)
+			    bool done);
+
+/*
+ * Return true iff cli_writeq was called. This is compatible with the
+ * convention for cli continuation callbacks, so object_get_more can call us.
+ */
+static bool object_get_poke(struct client *cli)
 {
 	char *buf;
 	ssize_t bytes;
-
-	/* free now-written buffer */
-	free(wr->cb_data);
 
 	buf = malloc(CLI_DATA_BUF_SZ);
 	if (!buf)
 		return false;
 
-	/* do not queue more, if !completion or fd was closed early */
-	if (!done || cli->in_fd < 0)
-		goto err_out_buf;
-
-	bytes = read(cli->in_fd, buf, MIN(cli->in_len, CLI_DATA_BUF_SZ));
+	bytes = stor_get_buf(&cli->in_ce, buf,
+			     MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%s) failed: %s", cli->in_fn,
-			strerror(errno));
+		syslog(LOG_ERR, "read obj(%llX) failed",
+		       (unsigned long long) cli->in_objid);
 		goto err_out;
 	}
-	if (bytes == 0 && cli->in_len != 0)
-		goto err_out;
+	if (bytes == 0) {
+		if (!cli->in_len) {
+			cli_in_end(cli);
+			cli_write_start(cli);
+		}
+		free(buf);
+		return false;
+	}
 
 	cli->in_len -= bytes;
-
-	if (!cli->in_len)
+	if (!cli->in_len) {
+		if (cli_writeq(cli, buf, bytes, cli_cb_free, buf))
+			goto err_out;
 		cli_in_end(cli);
-
-	if (cli_writeq(cli, buf, bytes,
-		       cli->in_len ? object_get_more : cli_cb_free, buf))
-		goto err_out;
-
+		cli_write_start(cli);
+	} else {
+		if (cli_writeq(cli, buf, bytes, object_get_more, buf))
+			goto err_out;
+		if (cli_wqueued(cli) >= 4000)
+			cli_write_start(cli);
+	}
 	return true;
 
 err_out:
 	cli_in_end(cli);
-err_out_buf:
 	free(buf);
 	return false;
+}
+
+/* callback from the client side: a queued write is being disposed */
+static bool object_get_more(struct client *cli, struct client_write *wr,
+			    bool done)
+{
+
+	/* free now-written buffer */
+	free(wr->cb_data);
+
+	/* do not queue more, if !completion or fd was closed early */
+	if (!done)	/* FIXME We used to test for input errors here. */
+		return false;
+
+	return object_get_poke(cli);		/* won't hurt to try */
+}
+
+/* callback from the chunkd side: some data is available */
+static void object_get_event(struct open_chunk *cep)
+{
+	struct client *cli;
+	unsigned char *p;
+
+	/* FIXME what's the name of this ideom? parentof()? */
+	p = (unsigned char *)cep;
+	p -= ((unsigned long) &((struct client *)0)->in_ce);  /* offsetof */
+	cli = (struct client *) p;
+
+	object_get_poke(cli);
 }
 
 bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		       const char *key, bool want_body)
 {
-	char *md5, *name;
-	char timestr[64], modstr[64], *hdr, *fn, *tmp;
+	char *md5;
+	char timestr[64], modstr[64], *hdr, *tmp;
 	int rc, i;
 	enum errcode err = InternalError;
-	struct stat st;
 	char buf[4096];
 	ssize_t bytes;
 	bool access, modified = true;
@@ -805,6 +847,8 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	struct db_obj_ent *obj = NULL;
 	DBT pkey, pval;
 	void *p;
+	uint64_t objsize;	/* As reported by Chunk. Not used. */
+	struct storage_node *stnode;
 	uint32_t n_str;
 	uint16_t *slenp;
 
@@ -845,7 +889,6 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	}
 
 	md5 = obj->md5;
-	name = obj->name;
 
 	hdr = req_hdr(&cli->req, "if-match");
 	if (hdr && strcmp(md5, hdr)) {
@@ -879,23 +922,34 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		extra_hdr = g_string_append(extra_hdr, dbhdr);
 	}
 
-	if (asprintf(&fn, "%s/%s", tabled_srv.data_dir, name) < 0)
+	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE)
+{
+ /* FIXME: Not implemented yet */
+ /* P3 */ syslog(LOG_ERR, "Inline object %s", key);
 		goto err_out_str;
+}
 
-	cli->in_fd = open(fn, O_RDONLY);
-	if (cli->in_fd < 0) {
-		free(fn);
-		syslog(LOG_ERR, "open obj(%s) failed: %s", fn,
-			strerror(errno));
+	cli->in_objid = obj->d.avec[0].oid;
+
+	if (list_empty(&tabled_srv.all_stor)) {
+		syslog(LOG_ERR, "No chunk nodes");
+		goto err_out_str;
+	}
+	stnode = list_entry(tabled_srv.all_stor.next,
+			    struct storage_node, all_link);
+
+	rc = stor_open(&cli->in_ce, stnode);
+	if (rc < 0) {
+		syslog(LOG_WARNING, "Cannot open chunk (%d)", rc);
 		goto err_out_str;
 	}
 
-	cli->in_fn = fn;
-
-	if (fstat(cli->in_fd, &st) < 0) {
-		syslog(LOG_ERR, "fstat obj(%s) failed: %s", fn,
-			strerror(errno));
-		goto err_out_in_end;
+	rc = stor_open_read(&cli->in_ce, object_get_event, cli->in_objid,
+			    &objsize);
+	if (rc < 0) {
+		syslog(LOG_ERR, "open oid %llX failed (%d)",
+		       (unsigned long long) cli->in_objid, rc);
+		goto err_out_str;
 	}
 
 	hdr = req_hdr(&cli->req, "if-unmodified-since");
@@ -908,7 +962,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 			goto err_out_in_end;
 		}
 
-		if (st.st_mtime > t) {
+		if (obj->mtime / 1000000 > t) {
 			err = PreconditionFailed;
 			goto err_out_in_end;
 		}
@@ -924,7 +978,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 			goto err_out_in_end;
 		}
 
-		if (st.st_mtime <= t) {
+		if (obj->mtime / 1000000 <= t) {
 			modified = false;
 			want_body = false;
 		}
@@ -948,10 +1002,10 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		     cli->req.major,
 		     cli->req.minor,
 		     modified ? 200 : 304,
-		     (unsigned long long) st.st_size,
+		     (unsigned long long) obj->size,
 		     md5,
 		     time2str(timestr, time(NULL)),
-		     time2str(modstr, st.st_mtime),
+		     time2str(modstr, obj->mtime / 1000000),
 		     extra_hdr->str) < 0)
 		goto err_out_in_end;
 
@@ -966,19 +1020,17 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		goto start_write;
 	}
 
-	cli->in_len = st.st_size;
+	cli->in_len = obj->size;
 
-	bytes = read(cli->in_fd, buf, MIN(st.st_size, sizeof(buf)));
+	bytes = stor_get_buf(&cli->in_ce, buf, MIN(cli->in_len, sizeof(buf)));
 	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%s) failed: %s", fn,
-			strerror(errno));
+		syslog(LOG_ERR, "read obj(%llX) failed",
+		       (unsigned long long) cli->in_objid);
 		goto err_out_in_end;
 	}
 	if (bytes == 0) {
-		if (cli->in_len != 0)
-			goto err_out_in_end;
-
-		cli_in_end(cli);
+		if (!cli->in_len)
+			cli_in_end(cli);
 
 		rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
 		if (rc) {

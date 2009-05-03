@@ -1,23 +1,39 @@
 #!/bin/sh
 
+killpid () {
+	pidfile=$1
+	kill $(cat $pidfile)
+
+	for ((n = 0; n < 10; n++))
+	do
+		if [ ! -f $pidfile ]
+		then
+			return 0
+		fi
+
+		sleep 1
+	done
+
+	echo "PID file $pidfile not removed, after signal sent." >&2
+	rm -f $pidfile
+	return 1
+}
+
+ret=0
+
 if [ ! -f tabled.pid ]
 then
-	echo no daemon pid file found.
-	exit 1
+	# Just a warning. Previous test somehow made the daemon to die.
+	echo "No tabled PID file found." >&2
+else
+	killpid tabled.pid || ret=1
 fi
 
-kill `cat tabled.pid`
+if [ ! -f chunkd.pid ]
+then
+	echo "No chunkd PID file found." >&2
+else
+	killpid chunkd.pid || ret=1
+fi
 
-for ((n = 0; n < 10; n++))
-do
-	if [ ! -f tabled.pid ]
-	then
-		exit 0
-	fi
-
-	sleep 1
-done
-
-echo "PID file not removed, after signal sent."
-rm -f tabled.pid
-exit 1
+exit "$ret"

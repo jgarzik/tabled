@@ -282,12 +282,30 @@ static void print_obj(struct db_obj_ent *obj)
 	uint16_t *slenp;
 	char *dbstr;
 
-	printf("%s\t%s\t%s\t%s\t%u\n",
-		obj->bucket,
-		obj->owner,
-		obj->md5,
-		obj->name,
-		n_str);
+	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE) {
+		printf("%s\t%s\t%s\t[%d]\t%u\n",
+			obj->bucket,
+			obj->owner,
+			obj->md5,
+			GUINT16_FROM_LE(obj->size),
+			n_str);
+	} else {
+		printf("%s\t%s\t%s",
+			obj->bucket,
+			obj->owner,
+			obj->md5);
+		for (i = 0; i < MAXWAY; i++) {
+			if (i == 0) {
+				printf("\t");
+			} else {
+				printf(",");
+			}
+			printf("\t%d:%lld",
+			       GUINT32_FROM_LE(obj->d.avec[i].nid),
+			       (long long) GUINT64_FROM_LE(obj->d.avec[i].oid));
+			printf("%u\n", n_str);
+		}
+	}
 
 	p = obj;
 	p += sizeof(*obj);
@@ -329,7 +347,7 @@ static void do_obj_list(void)
 		exit(1);
 	}
 
-	printf("bucket\towner\tmd5\tfilename\tn_str\n");
+	printf("bucket\towner\tmd5\tsize|addr\tn_str\n");
 
 	while (1) {
 		struct db_obj_ent *obj;

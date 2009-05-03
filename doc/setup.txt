@@ -8,9 +8,6 @@ Setup instructions
 *) The tabled writes its pid to /var/run/tabled.pid by default.
    If you don't like the location, change it with <PID> tag.
 
-*) Create/choose data directory, where raw object data is stored.
-   This is set with the <Data> tag.
-
 *) Create/choose TDB data directory, where Berkeley DB stores
    data and metadata. Change this location with <TDB> tag.
 

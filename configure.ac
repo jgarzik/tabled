@@ -60,6 +60,7 @@ dnl Checks for programs
 AC_PROG_CC
 AC_PROG_GCC_TRADITIONAL
 AM_PROG_LIBTOOL
+PKG_PROG_PKG_CONFIG
 
 dnl Checks for header files.
 dnl AC_HEADER_STDC
@@ -74,6 +75,7 @@ dnl Checks for required libraries
 dnl -----------------------------
 AC_CHECK_LIB(pcre, pcre_compile, PCRE_LIBS=-lpcre)
 AC_CHECK_LIB(crypto, MD5_Init, CRYPTO_LIBS=-lcrypto)
+AC_CHECK_LIB(ssl, SSL_new, SSL_LIBS=-lssl)
 AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 	AC_CHECK_LIB(db-4.6, db_create, DB4_LIBS=-ldb-4.6,
 	AC_CHECK_LIB(db-4.5, db_create, DB4_LIBS=-ldb-4.5,
@@ -81,6 +83,7 @@ AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3, exit 1)))))
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
+PKG_CHECK_MODULES(CHUNKDC, libchunkdc)
 
 dnl -------------------------------------
 dnl Checks for optional library functions
@@ -94,16 +97,18 @@ dnl --------------------------
 dnl autoconf output generation
 dnl --------------------------
 
-PKG_PROG_PKG_CONFIG()
 AM_PATH_GLIB_2_0(2.0.0)
 AM_PATH_XML2(2.6.0, , exit 1)
 LIBCURL_CHECK_CONFIG(, 7.10.1, , exit 1)
 
 AC_SUBST(PCRE_LIBS)
 AC_SUBST(CRYPTO_LIBS)
+AC_SUBST(SSL_LIBS)
 AC_SUBST(DB4_LIBS)
 AC_SUBST(EVENT_LIBS)
 AC_SUBST(ARGP_LIBS)
+dnl PKG_CHECK_MODULES has AC_SUBST inside?
+dnl AC_SUBST(CHUNKDC_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
