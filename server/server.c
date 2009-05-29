@@ -1363,6 +1363,7 @@ int main (int argc, char *argv[])
 	rc = write_pid_file(tabled_srv.pid_file);
 	if (rc < 0)
 		goto err_out;
+	tabled_srv.pid_fd = rc;
 
 	/*
 	 * properly capture TERM and other signals
@@ -1409,6 +1410,7 @@ err_out_pid:
 	tdb_done();
 /* err_tdb_init: */
 	unlink(tabled_srv.pid_file);
+	close(tabled_srv.pid_fd);
 err_out:
 	closelog();
 	return rc;

@@ -86,23 +86,44 @@ int write_pid_file(const char *pid_fn)
 {
 	char str[32], *s;
 	size_t bytes;
+	int fd;
+	struct flock lock;
+	int err;
 
 	/* build file data */
 	sprintf(str, "%u\n", getpid());
-	s = str;
-	bytes = strlen(s);
 
-	/* exclusive open */
-	int fd = open(pid_fn, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+	/* open non-exclusively (works on NFS v2) */
+	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
+		err = errno;
 		syslogerr(pid_fn);
-		return -errno;
+		return -err;
+	}
+
+	/* lock */
+	memset(&lock, 0, sizeof(lock));
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lock) != 0) {
+		err = errno;
+		if (err == EAGAIN) {
+			syslog(LOG_ERR, "Pid file %s is locked, not starting\n",
+			       pid_fn);
+		} else {
+			syslogerr(pid_fn);
+		}
+		close(fd);
+		return -err;
 	}
 
 	/* write file data */
+	bytes = strlen(str);
+	s = str;
 	while (bytes > 0) {
 		ssize_t rc = write(fd, s, bytes);
 		if (rc < 0) {
+			err = errno;
 			syslogerr("pid data write failed");
 			goto err_out;
 		}
@@ -112,17 +133,18 @@ int write_pid_file(const char *pid_fn)
 	}
 
 	/* make sure file data is written to disk */
-	if ((fsync(fd) < 0) || (close(fd) < 0)) {
+	if (fsync(fd) < 0) {
+		err = errno;
 		syslogerr("pid file sync/close failed");
 		goto err_out;
 	}
 
-	return 0;
+	return fd;
 
 err_out:
 	close(fd);
 	unlink(pid_fn);
-	return -errno;
+	return -err;
 }
 
 int fsetflags(const char *prefix, int fd, int or_flags)

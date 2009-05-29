@@ -186,6 +186,7 @@ struct listen_cfg {
 
 struct server {
 	unsigned long		flags;		/* SFL_xxx above */
+	int			pid_fd;		/* fd of pid_file */
 
 	char			*config;	/* config file (static) */
 
