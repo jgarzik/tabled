@@ -226,7 +226,7 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	return 0;
 
 err_out_obj:
-	tdb->objs->close(tdb->acls, 0);
+	tdb->objs->close(tdb->objs, 0);
 err_out_acls:
 	tdb->acls->close(tdb->acls, 0);
 err_out_bidx:
