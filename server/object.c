@@ -33,6 +33,7 @@
 
 /*
  * If successful, return the object (in DB representation).
+ * N.B.: returned object is truncated, which is ok for unlink.
  */
 static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 		       struct db_obj_ent *pobj)
@@ -49,9 +50,11 @@ static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 	strcpy(okey->key, key);
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
 	pkey.data = okey;
 	pkey.size = alloc_len;
+
+	memset(&pval, 0, sizeof(pval));
+	pval.flags = DB_DBT_MALLOC;
 
 	/* read existing object info, if any */
 	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
@@ -62,6 +65,7 @@ static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 
 	if (pobj)
 		memcpy(pobj, pval.data, sizeof(struct db_obj_ent));
+	free(pval.data);
 	return 0;
 }
 
@@ -173,9 +177,11 @@ bool object_del(struct client *cli, const char *user,
 	strcpy(okey->key, key);
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
 	pkey.data = okey;
 	pkey.size = alloc_len;
+
+	memset(&pval, 0, sizeof(pval));
+	pval.flags = DB_DBT_MALLOC;
 
 	/* read existing object info, if any */
 	rc = objs->get(objs, txn, &pkey, &pval, DB_RMW);
@@ -187,6 +193,7 @@ bool object_del(struct client *cli, const char *user,
 
 	/* save object addresses, for later use */
 	memcpy(&obje, pval.data, sizeof(struct db_obj_ent));
+	free(pval.data);
 
 	if (!__object_del(txn, bucket, key))
 		goto err_out;
@@ -866,10 +873,10 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	strcpy(okey->key, key);
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
 	pkey.data = okey;
 	pkey.size = alloc_len;
 
+	memset(&pval, 0, sizeof(pval));
 	pval.flags = DB_DBT_MALLOC;
 
 	rc = objs->get(objs, NULL, &pkey, &pval, 0);

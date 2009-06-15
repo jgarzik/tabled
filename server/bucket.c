@@ -83,10 +83,11 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	}
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
-
 	pkey.data = acl_key;
 	pkey.size = alloc_len;
+
+	memset(&pval, 0, sizeof(pval));
+	pval.flags = DB_DBT_MALLOC;
 
 	/* loop through matching records (if any) */
 	rc = cur->get(cur, &pkey, &pval, DB_SET);
@@ -95,8 +96,13 @@ bool has_access(const char *user, const char *bucket, const char *key,
 
 		if (!strncmp(acl->grantee, user, sizeof(acl->grantee))) {
 			match = (strstr(acl->perm, perm) != NULL);
+			free(acl);
 			break;
 		}
+		free(acl);
+
+		memset(&pval, 0, sizeof(pval));
+		pval.flags = DB_DBT_MALLOC;
 
 		rc = cur->get(cur, &pkey, &pval, DB_NEXT_DUP);
 	}
@@ -343,20 +349,22 @@ static int bucket_find(DB_TXN *txn, const char *bucket, char *owner,
 {
 	DB *buckets = tdb.buckets;
 	DBT key, val;
-	struct db_bucket_ent *ent;
+	struct db_bucket_ent ent;
 	int rc;
 
 	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-
 	key.data = (char *) bucket;
 	key.size = strlen(bucket) + 1;
+
+	memset(&val, 0, sizeof(val));
+	val.data = &ent;
+	val.ulen = sizeof(struct db_bucket_ent);
+	val.flags = DB_DBT_USERMEM;
 
 	rc = buckets->get(buckets, txn, &key, &val, 0);
 
 	if (rc == 0 && owner != NULL && owner_len > 0) {
-		ent = val.data;
-		strncpy(owner, ent->owner, owner_len);
+		strncpy(owner, ent.owner, owner_len);
 		owner[owner_len-1] = 0;
 	}
 
@@ -461,7 +469,7 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 		rc = bucket_find(txn, bucket, NULL, 0);
 		if (rc) {
 			if (rc != DB_NOTFOUND) {
-				buckets->err(buckets, rc, "buckets->put");
+				buckets->err(buckets, rc, "buckets->find");
 				goto err_out;
 			}
 
@@ -541,7 +549,7 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	char *hdr, timestr[64];
 	enum errcode err = InternalError;
 	int rc;
-	struct db_bucket_ent *ent;
+	struct db_bucket_ent ent;
 	DB_ENV *dbenv = tdb.env;
 	DB_TXN *txn = NULL;
 	DB *buckets = tdb.buckets;
@@ -582,16 +590,21 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	key.data = obj_key;
 	key.size = sizeof(*obj_key) + strlen(obj_key->key) + 1;
 
+	val.flags = DB_DBT_MALLOC;
+
 	rc = cur->get(cur, &key, &val, DB_SET_RANGE);
 
 	if (rc == 0) {
 		struct db_obj_key *newkey = key.data;
 
 		if (!strcmp(newkey->bucket, bucket)) {
+			free(newkey);
 			cur->close(cur);
 			err = BucketNotEmpty;
 			goto err_out;
 		}
+
+		free(newkey);
 	} else if (rc != DB_NOTFOUND)
 		objs->err(objs, rc, "bucket_del empty check");
 
@@ -602,9 +615,13 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	}
 
 	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
 	key.data = (char *) bucket;
 	key.size = strlen(bucket) + 1;
+
+	memset(&val, 0, sizeof(val));
+	val.data = &ent;
+	val.ulen = sizeof(struct db_bucket_ent);
+	val.flags = DB_DBT_USERMEM;
 
 	/* verify the bucket exists */
 	rc = buckets->get(buckets, txn, &key, &val, 0);
@@ -616,10 +633,8 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 		goto err_out;
 	}
 
-	ent = val.data;
-
 	/* verify that it is the owner who wishes to delete bucket */
-	if (strncmp(user, ent->owner, sizeof(ent->owner))) {
+	if (strncmp(user, ent.owner, sizeof(ent.owner))) {
 		err = AccessDenied;
 		goto err_out;
 	}
@@ -925,8 +940,6 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	strcpy(obj_key->key, marker ? marker : prefix ? prefix : "");
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
-
 	pkey.data = obj_key;
 	pkey.size = alloc_len;
 
@@ -945,6 +958,9 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 		struct db_obj_key *tmpkey;
 		struct db_obj_ent *obj;
 
+		memset(&pval, 0, sizeof(pval));
+		pval.flags = DB_DBT_MALLOC;
+
 		rc = cur->get(cur, &pkey, &pval, get_flags);
 		if (rc) {
 			if (rc != DB_NOTFOUND)
@@ -957,10 +973,13 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 		tmpkey = pkey.data;
 		obj = pval.data;
 
-		if (strcmp(tmpkey->bucket, bucket))
+		if (strcmp(tmpkey->bucket, bucket)) {
+			free(obj);
 			break;
+		}
 		if (prefix) {
 			if (strncmp(tmpkey->key, prefix, pfx_len) != 0) {
+				free(obj);
 				if (!seen_prefix)
 					/* continue searching for
 					 * a record that begins with this
@@ -981,6 +1000,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 			memcpy(&v.addr, &obj->d.avec[0], sizeof(v.addr));
 		v.mtime = obj->mtime;
 		v.size = obj->size;
+		free(obj);
 
 		if (bucket_list_iter(tmpkey->key, &v, &bli))
 			break;
@@ -1159,12 +1179,18 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 	}
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
-
 	pkey.data = acl_key;
 	pkey.size = alloc_len;
 
-	while ((rc = cur->get(cur, &pkey, &pval, DB_NEXT)) == 0) {
+	for (;; free(acl)) {
+
+		memset(&pval, 0, sizeof(pval));
+		pval.flags = DB_DBT_MALLOC;
+
+		rc = cur->get(cur, &pkey, &pval, DB_NEXT);
+		if (rc)
+			break;
+
 		acl = pval.data;
 
 		/* This is a workaround, see FIXME about DB_NEXT. */
@@ -1174,6 +1200,7 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 			continue;
 
 		if ((mp = malloc(sizeof(struct macl))) == NULL) {
+			free(acl);
 			cur->close(cur);
 			goto err_out_rb;
 		}

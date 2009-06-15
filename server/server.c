@@ -94,6 +94,8 @@ struct server tabled_srv = {
 	.config			= "/etc/tabled.conf",
 };
 
+struct tabledb tdb;
+
 struct compiled_pat patterns[] = {
 	[pat_bucket_host] =
 	{ "^\\s*(\\w+)\\.(\\w.*)$", 0, },
@@ -231,6 +233,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 	int usiglen;
 	int captured[16];
 	char *user;
+	char *pass;
 	DBT key, val;
 	int rc;
 	int err;
@@ -241,14 +244,15 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 		goto err_pat;
 	}
 
-	memset(&key, 0, sizeof(key));
-	memset(&val, 0, sizeof(val));
-
 	user = g_strndup(auth + captured[2], captured[3] - captured[2]);
 	usiglen = captured[5] - captured[4];
 
+	memset(&key, 0, sizeof(key));
 	key.data = user;
 	key.size = strlen(user) + 1;
+
+	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
 
 	/* to prevent attacks that validate a username's
 	 * existence, we return the same error regardless
@@ -258,7 +262,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 
 	rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
 	if (rc) {
-		val.data = "";
+		pass = strdup("");
 
 		if (debugging)
 			syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
@@ -268,9 +272,12 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 			snprintf(s, 64, "get user '%s'", user);
 			tdb.passwd->err(tdb.passwd, rc, s);
 		}
+	} else {
+		pass = val.data;
 	}
 
-	req_sign(req, extra_bucket, val.data, b64sig);
+	req_sign(req, extra_bucket, pass, b64sig);
+	free(pass);
 
 	if (strncmp(b64sig, auth + captured[4], usiglen) != 0) {
 		err = SignatureDoesNotMatch;
@@ -1313,6 +1320,7 @@ static void compile_patterns(void)
 
 int main (int argc, char *argv[])
 {
+	unsigned int env_flags, db_flags;
 	error_t aprc;
 	int rc = 1;
 
@@ -1368,7 +1376,6 @@ int main (int argc, char *argv[])
 	/*
 	 * properly capture TERM and other signals
 	 */
-
 	signal(SIGHUP, SIG_IGN);
 	signal(SIGINT, term_signal);
 	signal(SIGTERM, term_signal);
@@ -1376,7 +1383,12 @@ int main (int argc, char *argv[])
 
 	event_init();
 
-	tdb_init();
+	tdb.home = tabled_srv.tdb_dir;
+	env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+	db_flags = DB_CREATE | DB_THREAD;
+	if (tdb_open(&tdb, env_flags, db_flags, "tabled", true))
+		exit(1);
+
 	objid_init();
 	stor_init();
 
@@ -1407,7 +1419,7 @@ int main (int argc, char *argv[])
 // err_cld_session:
 	/* net_close(); */
 err_out_pid:
-	tdb_done();
+	tdb_close(&tdb);
 /* err_tdb_init: */
 	unlink(tabled_srv.pid_file);
 	close(tabled_srv.pid_fd);

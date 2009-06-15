@@ -37,8 +37,6 @@
 
 #define OBJID_STEP   500
 
-struct tabledb tdb;
-
 size_t strlist_len(GList *l)
 {
 	GList *tmp = l;
@@ -185,22 +183,6 @@ void md5str(const unsigned char *digest, char *outstr)
 	outstr[MD5_DIGEST_LENGTH * 2] = 0;
 }
 
-void tdb_init(void)
-{
-	memset(&tdb, 0, sizeof(tdb));
-
-	tdb.home = tabled_srv.tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tabled", true))
-		exit(1);
-}
-
-void tdb_done(void)
-{
-	tdb_close(&tdb);
-}
-
 uint64_t objid_next(void)
 {
 	DB_ENV *dbenv = tdb.env;
@@ -266,15 +248,20 @@ void objid_init(void)
 	DB_TXN *txn = NULL;
 	DBT pkey, pval;
 	int recno;
+	uint64_t cntbuf;	/* LE */
 	uint64_t objcount;	/* Host order */
 	int rc;
 
 	recno = 1;
 
 	memset(&pkey, 0, sizeof(pkey));
-	memset(&pval, 0, sizeof(pval));
 	pkey.data = &recno;
 	pkey.size = sizeof(recno);
+
+	memset(&pval, 0, sizeof(pval));
+	pval.data = &cntbuf;
+	pval.ulen = sizeof(uint64_t);
+	pval.flags = DB_DBT_USERMEM;
 
 	/* begin trans */
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
@@ -295,7 +282,7 @@ void objid_init(void)
 			syslog(LOG_ERR, "objid_init got size %d", pval.size);
 			exit(1);
 		}
-		objcount = GUINT64_FROM_LE(*(uint64_t *)pval.data);
+		objcount = GUINT64_FROM_LE(cntbuf);
 		if (debugging)
 			syslog(LOG_INFO, "objid_init initial %llX",
 			       (unsigned long long) objcount);
@@ -306,7 +293,7 @@ void objid_init(void)
 		 *  - if we crash before next step commit
 		 *  - better verify now that writing IDs works ok
 		 */
-		*(uint64_t *)pval.data = GUINT64_TO_LE(objcount);
+		cntbuf = GUINT64_TO_LE(objcount);
 
 		rc = oids->put(oids, txn, &pkey, &pval, 0);
 		if (rc) {

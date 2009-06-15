@@ -252,9 +252,6 @@ extern void md5str(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
 
-extern void tdb_done(void);
-extern void tdb_init(void);
-
 uint64_t objid_next(void);
 void objid_init(void);
 
