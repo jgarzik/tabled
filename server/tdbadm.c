@@ -367,6 +367,44 @@ static void do_obj_list(void)
 	cur->close(cur);
 }
 
+static void do_obj_cnt(void)
+{
+	DBC *cur = NULL;
+	DBT key, val;
+	uint64_t objcount;	/* Host order */
+	int rc;
+
+	rc = tdb.oids->cursor(tdb.oids, NULL, &cur, 0);
+	if (rc) {
+		tdb.oids->err(tdb.oids, rc, "cursor create");
+		exit(1);
+	}
+
+	memset(&key, 0, sizeof(key));
+	memset(&val, 0, sizeof(val));
+
+	/* read existing counter, if any */
+	rc = cur->get(cur, &key, &val, DB_NEXT);
+	if (rc == DB_NOTFOUND) {
+		printf("-\n");
+	} else if (rc) {
+		printf("\n");
+		fprintf(stderr, "objid get error %d\n", rc);
+		exit(1);
+	} else {
+		if (val.size != sizeof(uint64_t)) {
+			printf("\n");
+			fprintf(stderr, "objid_init got size %d\n", val.size);
+			exit(1);
+		}
+
+		objcount = GUINT64_FROM_LE(*(uint64_t *)val.data);
+		printf("%llu\n", (unsigned long long) objcount);
+	}
+
+	cur->close(cur);
+}
+
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
 	struct stat st;
@@ -411,7 +449,7 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 int main(int argc, char *argv[])
 {
 	error_t aprc;
-	int rc = 0;
+	int rc = 1;
 
 	aprc = argp_parse(&argp, argc, argv, 0, NULL, NULL);
 	if (aprc) {
@@ -423,10 +461,8 @@ int main(int argc, char *argv[])
 		die("no tdb dir (-t) specified\n");
 
 	tdb.home = tdb_dir;
-
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE,
-		     "tdbadm", false))
-		return 1;
+	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE, "tdbadm", false))
+		goto err_dbopen;
 
 	switch (mode_adm) {
 	case mode_user:
@@ -456,14 +492,19 @@ int main(int argc, char *argv[])
 
 		printf("\nObjects:\n");
 		do_obj_list();
+
+		printf("\nObjectCount: ");
+		do_obj_cnt();
 		break;
 	default:
 		fprintf(stderr, "%s: invalid mode\n", argv[0]);
-		rc = 1;
-		break;
+		goto err_act;
 	}
 
-	tdb_close(&tdb);
+	rc = 0;
 
+ err_act:
+	tdb_close(&tdb);
+ err_dbopen:
 	return rc;
 }
