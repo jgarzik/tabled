@@ -340,14 +340,15 @@ void stor_init(void)
 			if (getnameinfo(&stn->a.addr, stn->alen,
 					host, sizeof(host), port, sizeof(port),
 					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				syslog(LOG_INFO, "Error connecing to chunkd"
-				       " on host %s port %s\n",
+				syslog(LOG_INFO, "Error connecting to chunkd"
+				       " on host %s port %s",
 				       host, port);
 			} else {
-				syslog(LOG_INFO, "Error connecing to chunkd");
+				syslog(LOG_INFO, "Error connecting to chunkd");
 			}
 			exit(1);
 		}
+		syslog(LOG_INFO, "Error connecting to chunkd, retrying");
 
 		/*
 		 * Logged the condition, now start looping silently.
