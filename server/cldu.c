@@ -56,6 +56,7 @@ static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
+static void add_remote(char *name);
 
 /* The format comes with a trailing newline, but fortunately syslog strips it */
 void cldu_p_log(const char *fmt, ...)
@@ -704,9 +705,9 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	}
 
 	/*
-	 * Write the file with our connection parameters (FIXME rep_port)
+	 * Write the file with our connection parameters.
 	 */
-	len = snprintf(buf, sizeof(buf), "*\n");
+	len = snprintf(buf, sizeof(buf), "port: %u\n", tabled_srv.rep_port);
 	if (len >= sizeof(buf)) {
 		syslog(LOG_ERR,
 		       "internal error: overflow in cldu_lock_cb (%d)", len);
@@ -788,6 +789,7 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		} else {
 			if (debugging)
 				syslog(LOG_DEBUG, " %s", buf);
+			add_remote(buf);
 		}
 
 		ptr += total_len;
@@ -798,6 +800,27 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		(*sp->state_cb)(ST_CLD_ACTIVE);
 
 	return 0;
+}
+
+/*
+ * FIXME need to read port number from the file (port:<space>num).
+ */
+static void add_remote(char *name)
+{
+	struct db_remote *rp;
+
+	rp = malloc(sizeof(struct db_remote));
+	if (!rp)
+		return;
+
+	rp->port = 8083;
+	rp->host = strdup(name);
+	if (!rp->host) {
+		free(rp);
+		return;
+	}
+
+	tabled_srv.rep_remotes = g_list_append(tabled_srv.rep_remotes, rp);
 }
 
 /*

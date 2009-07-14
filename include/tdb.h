@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <glib.h>
 #include <db.h>
 
 #define MAXWAY      3
@@ -88,9 +89,16 @@ struct db_oid_ent {
 	uint64_t	oid;
 };
 
+enum db_event {
+	TDB_EV_NONE, TDB_EV_CLIENT, TDB_EV_MASTER, TDB_EV_ELECTED
+};
+
 struct tabledb {
-	char		*home;			/* database home dir */
-	char		*key;			/* database AES key */
+	bool		is_master;
+	bool		keyed;			/* database uses AES key */
+
+	const char	*home;			/* database home dir */
+	void		(*state_cb)(enum db_event);
 
 	DB_ENV		*env;			/* db4 env ptr */
 	DB		*passwd;		/* user/password db */
@@ -101,9 +109,17 @@ struct tabledb {
 	DB		*oids;			/* object ID db */
 };
 
+struct db_remote {	/* remotes for tdb_init */
+	char *host;
+	unsigned short port;
+};
 
-extern int tdb_open(struct tabledb *tdb, unsigned int env_flags,
-	unsigned int flags, const char *errpfx, bool do_syslog);
-extern void tdb_close(struct tabledb *tdb);
+extern int tdb_init(struct tabledb *tdb, const char *home, const char *pass,
+	unsigned int env_flags, const char *errpfx, bool do_syslog,
+	GList *remotes, char *rep_host, unsigned short rep_port,
+	void (*cb)(enum db_event));
+extern int tdb_up(struct tabledb *tdb, unsigned int open_flags);
+extern void tdb_down(struct tabledb *tdb);
+extern void tdb_fini(struct tabledb *tdb);
 
 #endif /* __TDB_H__ */

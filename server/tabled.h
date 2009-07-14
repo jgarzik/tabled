@@ -175,6 +175,15 @@ enum st_cld {
 	ST_CLD_INIT, ST_CLD_ACTIVE
 };
 
+enum st_tdb {
+	ST_TDB_INIT, ST_TDB_OPEN, ST_TDB_ACTIVE, ST_TDB_MASTER, ST_TDB_SLAVE,
+	ST_TDBNUM
+};
+
+enum st_net {
+	ST_NET_INIT, ST_NET_OPEN, ST_NET_LISTEN
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -199,15 +208,19 @@ struct server {
 	char			*port;		/* bind port */
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
+	unsigned short		rep_port;	/* db4 replication port */
 
 	char			*ourhost;	/* use this if DB master */
 	struct database		*db;		/* database handle */
+	GList			*rep_remotes;
 
 	GList			*sockets;
 	struct list_head	all_stor;	/* struct storage_node */
 	uint64_t		object_count;
 
 	enum st_cld		state_cld;
+	enum st_tdb		state_tdb, state_tdb_new;
+	enum st_net		state_net;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
@@ -266,7 +279,7 @@ extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
 
 uint64_t objid_next(void);
-void objid_init(void);
+int objid_init(void);
 
 /* server.c */
 extern int debugging;

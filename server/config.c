@@ -18,13 +18,17 @@
 
 struct config_context {
 	char		*text;
+
 	bool		in_listen;
 	struct listen_cfg tmp_listen;
 
-	/* XXX Drop this when CLD is up */
 	bool		in_storage;
 	char		*stor_port;
 	char		*stor_host;
+
+	bool		in_cld;
+	unsigned short	cld_port;
+	char		*cld_host;
 };
 
 static void cfg_elm_start (GMarkupParseContext *context,
@@ -48,6 +52,13 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			cc->in_storage = true;
 		} else {
 			syslog(LOG_ERR, "Nested StorageNode in configuration");
+		}
+	}
+	else if (!strcmp(element_name, "CLD")) {
+		if (!cc->in_cld) {
+			cc->in_cld = true;
+		} else {
+			syslog(LOG_ERR, "Nested CLD in configuration");
 		}
 	}
 }
@@ -142,6 +153,33 @@ end:
 	cc->stor_port = NULL;
 }
 
+static void cfg_elm_end_cld(struct config_context *cc)
+{
+	if (cc->text) {
+		syslog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
+		       cc->text);
+		free(cc->text);
+		cc->text = NULL;
+		goto end;
+	}
+
+	if (!cc->cld_host) {
+		syslog(LOG_WARNING, "No host for CLD element");
+		goto end;
+	}
+	if (!cc->cld_port) {
+		syslog(LOG_WARNING, "No port for CLD element");
+		goto end;
+	}
+
+	cldu_add_host(cc->cld_host, cc->cld_port);
+
+end:
+	free(cc->cld_host);
+	cc->cld_host = NULL;
+	cc->cld_port = 0;
+}
+
 static void cfg_elm_end (GMarkupParseContext *context,
 			 const gchar	 *element_name,
 			 gpointer	     user_data,
@@ -179,6 +217,20 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "TDBRepPort") && cc->text) {
+		n = strtol(cc->text, NULL, 10);
+		if (n <= 0 || n >= 65536) {
+			syslog(LOG_WARNING,
+			       "TDBRepPort '%s' invalid, ignoring", cc->text);
+			free(cc->text);
+			cc->text = NULL;
+			return;
+		}
+		tabled_srv.rep_port = n;
+		free(cc->text);
+		cc->text = NULL;
+	}
+
 	else if (!strcmp(element_name, "Listen")) {
 		cc->in_listen = false;
 
@@ -203,6 +255,11 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->in_storage = false;
 	}
 
+	else if (!strcmp(element_name, "CLD")) {
+		cfg_elm_end_cld(cc);
+		cc->in_cld = false;
+	}
+
 	else if (!strcmp(element_name, "Port")) {
 
 		if (!cc->text) {
@@ -211,7 +268,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		}
 
 		if (cc->in_listen) {
-			n = atoi(cc->text);
+			n = strtol(cc->text, NULL, 10);
 			if (n > 0 && n < 65536) {
 				free(cc->tmp_listen.port);
 				cc->tmp_listen.port = cc->text;
@@ -222,7 +279,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			}
 			cc->text = NULL;
 		} else if (cc->in_storage) {
-			n = atoi(cc->text);
+			n = strtol(cc->text, NULL, 10);
 			if (n > 0 && n < 65536) {
 				free(cc->stor_port);
 				cc->stor_port = cc->text;
@@ -231,6 +288,15 @@ static void cfg_elm_end (GMarkupParseContext *context,
 				       "Port '%s' invalid, ignoring", cc->text);
 				free(cc->text);
 			}
+			cc->text = NULL;
+		} else if (cc->in_cld) {
+			n = strtol(cc->text, NULL, 10);
+			if (n > 0 && n < 65536)
+				cc->cld_port = n;
+			else
+				syslog(LOG_WARNING,
+				       "Port '%s' invalid, ignoring", cc->text);
+			free(cc->text);
 			cc->text = NULL;
 		} else {
 			syslog(LOG_WARNING,
@@ -249,6 +315,10 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		if (cc->in_storage) {
 			free(cc->stor_host);
 			cc->stor_host = cc->text;
+			cc->text = NULL;
+		} else if (cc->in_cld) {
+			free(cc->cld_host);
+			cc->cld_host = cc->text;
 			cc->text = NULL;
 		} else {
 			syslog(LOG_WARNING, "Host element not in StorageNode");
@@ -335,6 +405,7 @@ void read_config(void)
 	memset(&ctx, 0, sizeof(struct config_context));
 
 	tabled_srv.port = strdup("8080");
+	tabled_srv.rep_port = 8083;
 
 	if (!g_file_get_contents(tabled_srv.config, &text, &len, NULL)) {
 		syslog(LOG_ERR, "failed to read config file %s",

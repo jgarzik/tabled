@@ -19,13 +19,14 @@ TESTS =				\
 	start-daemon		\
 	pid-exists		\
 	daemon-running		\
+	wait-for-listen		\
 	it-works		\
 	basic-bucket		\
 	basic-object		\
 	stop-daemon		\
 	clean-db
 
-check_PROGRAMS		= basic-bucket basic-object it-works
+check_PROGRAMS		= wait-for-listen basic-bucket basic-object it-works
 
 TESTLDADD		= ../lib/libhttpstor.la	\
 			  ../lib/libhttputil.a	\

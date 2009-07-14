@@ -42,13 +42,18 @@ enum various_modes {
 };
 
 static int mode_adm;
-static struct tabledb tdb;
 static unsigned long invalid_lines;
 static char *tdb_dir;
+static unsigned short rep_port;
+static char *config = "/etc/tabled.conf";
+
+static struct tabledb tdb;
 
 const char *argp_program_version = PACKAGE_VERSION;
 
 static struct argp_option options[] = {
+	{ "config", 'C', "/etc/tabled.conf", 0,
+	  "Configuration file" },
 	{ "users", 'u', NULL, 0,
 	  "User list input (from stdin, to database)" },
 	{ "list-all", 'a', NULL, 0,
@@ -80,6 +85,132 @@ static void die(const char *msg)
 {
 	fprintf(stderr, "%s", msg);
 	exit(1);
+}
+
+struct config_context {
+	char		*text;
+};
+
+static void cfg_elm_start(GMarkupParseContext *context,
+			 const gchar	 *element_name,
+			 const gchar     **attribute_names,
+			 const gchar     **attribute_values,
+			 gpointer     user_data,
+			 GError	     **error)
+{
+	// struct config_context *cc = user_data;
+}
+
+static void cfg_elm_end(GMarkupParseContext *context,
+			const gchar *element_name,
+			gpointer     user_data,
+			GError      **error)
+{
+	struct config_context *cc = user_data;
+	struct stat statb;
+	int n;
+
+	if (!strcmp(element_name, "TDB") && cc->text) {
+		if (!tdb_dir) {
+			if (stat(cc->text, &statb) < 0) {
+				fprintf(stderr,
+					"stat(2) on TDB '%s' failed: %s\n",
+					cc->text, strerror(errno));
+				exit(1);
+			}
+
+			if (!S_ISDIR(statb.st_mode)) {
+				fprintf(stderr, "TDB '%s' is not a directory\n",
+				       cc->text);
+				exit(1);
+			}
+
+			tdb_dir = cc->text;
+		} else {
+			free(cc->text);
+		}
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "TDBRepPort") && cc->text) {
+		n = strtol(cc->text, NULL, 10);
+		if (n <= 0 || n >= 65536) {
+			fprintf(stderr, "warning: "
+			       "TDBRepPort '%s' invalid, ignoring", cc->text);
+			free(cc->text);
+			cc->text = NULL;
+			return;
+		}
+		rep_port = n;
+		free(cc->text);
+		cc->text = NULL;
+	}
+}
+
+static bool str_n_isspace(const char *s, size_t n)
+{
+	char c;
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		c = *s++;
+		if (!isspace(c))
+			return false;
+	}
+	return true;
+}
+
+static void cfg_elm_text (GMarkupParseContext *context,
+			  const gchar	*text,
+			  gsize		text_len,
+			  gpointer	user_data,
+			  GError	**error)
+{
+	struct config_context *cc = user_data;
+
+	free(cc->text);
+	if (str_n_isspace(text, text_len))
+		cc->text = NULL;
+	else
+		cc->text = g_strndup(text, text_len);
+}
+
+static const GMarkupParser cfg_parse_ops = {
+	.start_element		= cfg_elm_start,
+	.end_element		= cfg_elm_end,
+	.text			= cfg_elm_text,
+};
+
+void read_config(void)
+{
+	GMarkupParseContext* parser;
+	char *text;
+	gsize len;
+	struct config_context ctx;
+
+	memset(&ctx, 0, sizeof(struct config_context));
+
+	rep_port = 8083;
+
+	if (!g_file_get_contents(config, &text, &len, NULL)) {
+		fprintf(stderr, "failed to read config file %s\n", config);
+		exit(1);
+	}
+
+	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, &ctx, NULL);
+	if (!parser) {
+		fprintf(stderr, "g_markup_parse_context_new failed\n");
+		exit(1);
+	}
+
+	if (!g_markup_parse_context_parse(parser, text, len, NULL)) {
+		fprintf(stderr, "config file parse failure\n");
+		exit(1);
+	}
+
+	g_markup_parse_context_free(parser);
+	free(ctx.text);
+	free(text);
 }
 
 static void push_upw(DB_TXN *txn, char *user, char *pw)
@@ -171,6 +302,7 @@ static void do_acl_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
 
 	rc = tdb.acls->cursor(tdb.acls, NULL, &cur, 0);
 	if (rc) {
@@ -194,6 +326,8 @@ static void do_acl_list(void)
 		       ent->key);
 
 		count++;
+
+		free(ent);
 	}
 
 	fprintf(stderr, "%lu records\n", count);
@@ -211,6 +345,7 @@ static void do_bucket_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
 
 	rc = tdb.buckets->cursor(tdb.buckets, NULL, &cur, 0);
 	if (rc) {
@@ -233,6 +368,8 @@ static void do_bucket_list(void)
 		       (unsigned long long) GUINT64_FROM_LE(ent->time_create));
 
 		count++;
+
+		free(ent);
 	}
 
 	fprintf(stderr, "%lu records\n", count);
@@ -249,6 +386,7 @@ static void do_user_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
 
 	rc = tdb.passwd->cursor(tdb.passwd, NULL, &cur, 0);
 	if (rc) {
@@ -267,6 +405,8 @@ static void do_user_list(void)
 			(char *) key.data,
 			(char *) val.data);
 		count++;
+
+		free(val.data);
 	}
 
 	fprintf(stderr, "%lu records\n", count);
@@ -340,6 +480,7 @@ static void do_obj_list(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_MALLOC;
 
 	rc = tdb.objs->cursor(tdb.objs, NULL, &cur, 0);
 	if (rc) {
@@ -360,6 +501,8 @@ static void do_obj_list(void)
 		print_obj(obj);
 
 		count++;
+
+		free(obj);
 	}
 
 	fprintf(stderr, "%lu records\n", count);
@@ -371,6 +514,7 @@ static void do_obj_cnt(void)
 {
 	DBC *cur = NULL;
 	DBT key, val;
+	uint64_t cntbuf;	/* LE */
 	uint64_t objcount;	/* Host order */
 	int rc;
 
@@ -382,6 +526,9 @@ static void do_obj_cnt(void)
 
 	memset(&key, 0, sizeof(key));
 	memset(&val, 0, sizeof(val));
+	val.flags = DB_DBT_USERMEM;
+	val.data = &cntbuf;
+	val.ulen = sizeof(uint64_t);
 
 	/* read existing counter, if any */
 	rc = cur->get(cur, &key, &val, DB_NEXT);
@@ -419,6 +566,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'B':
 		mode_adm = mode_bucket_list;
 		break;
+	case 'C':
+		config = arg;
+		break;
 	case 'O':
 		mode_adm = mode_obj_list;
 		break;
@@ -448,6 +598,8 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 
 int main(int argc, char *argv[])
 {
+	char hostname[64];
+	unsigned int env_flags, db_flags;
 	error_t aprc;
 	int rc = 1;
 
@@ -457,12 +609,29 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	read_config();
+
 	if (!tdb_dir)
 		die("no tdb dir (-t) specified\n");
 
-	tdb.home = tdb_dir;
-	if (tdb_open(&tdb, DB_RECOVER | DB_CREATE, DB_CREATE, "tdbadm", false))
-		goto err_dbopen;
+	if (gethostname(hostname, sizeof(hostname)) < 0) {
+		fprintf(stderr, "gethostname failed: %s\n", strerror(errno));
+		return 1;
+	}
+
+	env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+	if (tdb_init(&tdb, tdb_dir, NULL, env_flags,
+		     "tdbadm", false, NULL, hostname, rep_port, NULL))
+		goto err_dbinit;
+
+	/* Usually takes about 12s */
+	/* FIXME don't peek into private parts of tdb struct, use state_cb */
+	while (!tdb.is_master)
+		sleep(2);
+
+	db_flags = DB_CREATE | DB_THREAD;
+	if (tdb_up(&tdb, db_flags))
+		goto err_dbup;
 
 	switch (mode_adm) {
 	case mode_user:
@@ -504,7 +673,9 @@ int main(int argc, char *argv[])
 	rc = 0;
 
  err_act:
-	tdb_close(&tdb);
- err_dbopen:
+	tdb_down(&tdb);
+ err_dbup:
+	tdb_fini(&tdb);
+ err_dbinit:
 	return rc;
 }

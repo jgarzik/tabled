@@ -57,7 +57,9 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 {
 	int rc;
 	DB *db;
+	int retries = 5;
 
+retry:
 	rc = db_create(db_out, env, 0);
 	if (rc) {
 		env->err(env, rc, "db_create");
@@ -70,7 +72,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_pagesize(db, page_size);
 		if (rc) {
 			db->err(db, rc, "db->set_pagesize");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -79,7 +80,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	rc = db->set_lorder(db, 1234);
 	if (rc) {
 		db->err(db, rc, "db->set_lorder");
-		rc = -EIO;
 		goto err_out;
 	}
 
@@ -87,7 +87,6 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		rc = db->set_flags(db, fset);
 		if (rc) {
 			db->err(db, rc, "db->set_flags");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -95,8 +94,25 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 	rc = db->open(db, NULL, name, NULL, dbtype,
 		      DB_AUTO_COMMIT | flags, S_IRUSR | S_IWUSR);
 	if (rc) {
+		if (rc == ENOENT || rc == DB_REP_HANDLE_DEAD ||
+		    rc == DB_LOCK_DEADLOCK) {
+			if (!retries) {
+				db->err(db, rc, "db->open retried");
+				goto err_out;
+			}
+
+			rc = db->close(db, rc == ENOENT ? 0 : DB_NOSYNC);
+			if (rc) {
+				db->err(db, rc, "db->close");
+				goto err_out;
+			}
+
+			retries--;
+			sleep(2);
+			goto retry;
+		}
+
 		db->err(db, rc, "db->open");
-		rc = -EIO;
 		goto err_out;
 	}
 
@@ -104,33 +120,86 @@ static int open_db(DB_ENV *env, DB **db_out, const char *name,
 
 err_out:
 	db->close(db, 0);
-	return rc;
+	return -EIO;
 }
 
-int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
-	     const char *errpfx, bool do_syslog)
+static int add_remote_sites(DB_ENV *dbenv, GList *remotes, int *nsites)
 {
-	const char *db_home, *db_password;
+	int rc;
+	struct db_remote *rp;
+	GList *tmp;
+
+	*nsites = 0;
+	for (tmp = remotes; tmp; tmp = tmp->next) {
+		rp = tmp->data;
+
+		rc = dbenv->repmgr_add_remote_site(dbenv, rp->host, rp->port,
+						   NULL, 0);
+		if (rc) {
+			dbenv->err(dbenv, rc,
+				   "dbenv->add.remote.site host %s port %u",
+				   rp->host, rp->port);
+			return rc;
+		}
+		(*nsites)++;
+	}
+
+	return 0;
+}
+
+static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
+{
+	struct tabledb *tdb = dbenv->app_private;
+
+	switch (event) {
+	case DB_EVENT_REP_CLIENT:
+		tdb->is_master = false;
+		if (tdb->state_cb)
+			(*tdb->state_cb)(TDB_EV_CLIENT);
+		break;
+	case DB_EVENT_REP_MASTER:
+		tdb->is_master = true;
+		if (tdb->state_cb)
+			(*tdb->state_cb)(TDB_EV_MASTER);
+		break;
+	case DB_EVENT_REP_ELECTED:
+		if (tdb->state_cb)
+			(*tdb->state_cb)(TDB_EV_ELECTED);
+		break;
+	default:
+		/* do nothing */
+		break;
+	}
+}
+
+/*
+ * Initialize the DB environment and kick off the replication.
+ * db_password, cb can be NULL
+ */
+int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
+	     unsigned int env_flags, const char *errpfx, bool do_syslog,
+	     GList *remotes, char *rep_host, unsigned short rep_port,
+	     void (*cb)(enum db_event))
+{
+	int nsites;
 	int rc;
 	DB_ENV *dbenv;
 
-	/*
-	 * open DB environment
-	 */
-
-	db_home = tdb->home;
-	g_assert(db_home != NULL);
-
-	/* this isn't a very secure way to handle passwords */
-	db_password = tdb->key;
+	tdb->is_master = false;
+	tdb->home = db_home;
+	tdb->state_cb = cb;
 
 	rc = db_env_create(&tdb->env, 0);
 	if (rc) {
-		fprintf(stderr, "tdb->env_create failed: %d\n", rc);
+		if (do_syslog)
+			syslog(LOG_WARNING, "tdb->env_create failed: %d", rc);
+		else
+			fprintf(stderr, "tdb->env_create failed: %d\n", rc);
 		return rc;
 	}
 
 	dbenv = tdb->env;
+	dbenv->app_private = tdb;
 
 	dbenv->set_errpfx(dbenv, errpfx);
 
@@ -157,34 +226,89 @@ int tdb_open(struct tabledb *tdb, unsigned int env_flags, unsigned int flags,
 	}
 
 	if (db_password) {
-		flags |= DB_ENCRYPT;
 		rc = dbenv->set_encrypt(dbenv, db_password, DB_ENCRYPT_AES);
 		if (rc) {
 			dbenv->err(dbenv, rc, "dbenv->set_encrypt");
 			goto err_out;
 		}
-
-		memset(tdb->key, 0, strlen(tdb->key));
-		free(tdb->key);
-		tdb->key = NULL;
+		tdb->keyed = true;
 	}
 
-	/* init DB transactional environment, stored in directory db_home */
-	rc = dbenv->open(dbenv, db_home,
-			 env_flags |
-			 DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL |
-			 DB_INIT_TXN, S_IRUSR | S_IWUSR);
+	rc = dbenv->repmgr_set_local_site(dbenv, rep_host, rep_port, 0);
 	if (rc) {
-		if (dbenv)
-			dbenv->err(dbenv, rc, "dbenv->open");
-		else
-			fprintf(stderr, "dbenv->open failed: %d\n", rc);
+		dbenv->err(dbenv, rc, "dbenv->set_local_site");
+		goto err_out;
+	}
+ 
+	rc = dbenv->set_event_notify(dbenv, db4_event);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->set_event_notify");
 		goto err_out;
 	}
 
-	/*
-	 * Open databases
-	 */
+	// rc = dbenv->rep_set_timeout(dbenv, DB_REP_LEASE_TIMEOUT, 17000000);
+	// if (rc) {
+	// 	dbenv->err(dbenv, rc, "dbenv->rep_set_timeout(LEASE)");
+	// 	goto err_out;
+	// }
+
+	// Comment this out due to "nsites must be zero if leases configured"
+	// rc = dbenv->rep_set_config(dbenv, DB_REP_CONF_LEASE, 1);
+	// if (rc) {
+	// 	dbenv->err(dbenv, rc, "dbenv->rep_set_config");
+	// 	goto err_out;
+	// }
+
+	rc = dbenv->rep_set_priority(dbenv, 100);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->rep_set_priority");
+		goto err_out;
+	}
+
+	/* init DB transactional environment, stored in directory db_home */
+	env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
+	env_flags |= DB_INIT_TXN | DB_INIT_REP;
+	rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->open");
+		goto err_out;
+	}
+
+	rc = add_remote_sites(dbenv, remotes, &nsites);
+	if (rc)
+		goto err_out;
+
+	// rc = dbenv->rep_set_nsites(dbenv, nsites + 1);
+	// if (rc) {
+	// 	dbenv->err(dbenv, rc, "dbenv->repmgr_set_nsites");
+	// 	goto err_out;
+	// }
+
+	rc = dbenv->repmgr_start(dbenv, 2, DB_REP_ELECTION);
+	if (rc) {
+		dbenv->err(dbenv, rc, "dbenv->repmgr_start");
+		goto err_out;
+	}
+
+	return 0;
+
+err_out:
+	dbenv->close(dbenv, 0);
+	return rc;
+}
+
+/*
+ * Open databases
+ */
+int tdb_up(struct tabledb *tdb, unsigned int flags)
+{
+	DB_ENV *dbenv = tdb->env;
+	int rc;
+
+	if (!tdb->is_master)
+		flags &= ~DB_CREATE;
+	if (tdb->keyed)
+		flags |= DB_ENCRYPT;
 
 	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD,
 		     DB_HASH, flags, 0);
@@ -236,11 +360,14 @@ err_out_buckets:
 err_out_passwd:
 	tdb->passwd->close(tdb->passwd, 0);
 err_out:
-	dbenv->close(dbenv, 0);
 	return rc;
 }
 
-void tdb_close(struct tabledb *tdb)
+/*
+ * This only closes databases, but we don't want to call it "tdb_close"
+ * for historic reasons. Mind, replication remains up after this returns.
+ */
+void tdb_down(struct tabledb *tdb)
 {
 	tdb->oids->close(tdb->oids, 0);
 	tdb->objs->close(tdb->objs, 0);
@@ -248,9 +375,7 @@ void tdb_close(struct tabledb *tdb)
 	tdb->buckets_idx->close(tdb->buckets_idx, 0);
 	tdb->buckets->close(tdb->buckets, 0);
 	tdb->passwd->close(tdb->passwd, 0);
-	tdb->env->close(tdb->env, 0);
 
-	tdb->env = NULL;
 	tdb->passwd = NULL;
 	tdb->buckets = NULL;
 	tdb->buckets_idx = NULL;
@@ -259,3 +384,8 @@ void tdb_close(struct tabledb *tdb)
 	tdb->oids = NULL;
 }
 
+void tdb_fini(struct tabledb *tdb)
+{
+	tdb->env->close(tdb->env, 0);
+	tdb->env = NULL;
+}

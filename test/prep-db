@@ -9,7 +9,7 @@ mkdir -p $TDBDIR
 mkdir -p $CLDDIR
 mkdir -p $CHUNKDIR
 
-cat $top_srcdir/test/users.data | ../server/tdbadm -u -t $TDBDIR
+cat $top_srcdir/test/users.data | ../server/tdbadm -u -C $top_srcdir/test/tabled-test.conf
 
 if [ ! -f $TDBDIR/passwd ]
 then

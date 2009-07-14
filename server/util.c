@@ -241,7 +241,7 @@ err_out_begin:
  * We could auto-init, but the explicit initialization makes aborts
  * more debuggable and less unexpected, as they happen before requests come.
  */
-void objid_init(void)
+int objid_init(void)
 {
 	DB_ENV *dbenv = tdb.env;
 	DB *oids = tdb.oids;
@@ -267,7 +267,7 @@ void objid_init(void)
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		exit(1);
+		return -1;
 	}
 
 	/* read existing counter, if any */
@@ -276,11 +276,13 @@ void objid_init(void)
 		objcount = 1;
 	} else if (rc) {
 		syslog(LOG_ERR, "objid_init get error %d", rc);
-		exit(1);
+		txn->abort(txn);
+		return -1;
 	} else {
 		if (pval.size != sizeof(uint64_t)) {
 			syslog(LOG_ERR, "objid_init got size %d", pval.size);
-			exit(1);
+			txn->abort(txn);
+			return -1;
 		}
 		objcount = GUINT64_FROM_LE(cntbuf);
 		if (debugging)
@@ -301,7 +303,7 @@ void objid_init(void)
 			rc = txn->abort(txn);
 			if (rc)
 				dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
-			exit(1);
+			return -1;
 		}
 	}
 
@@ -314,8 +316,9 @@ void objid_init(void)
 	if (objcount & 0xff00000000000000) {
 		syslog(LOG_ERR, "Dangerous objid %llX\n",
 		       (unsigned long long) objcount);
-		exit(1);
+		return -1;
 	}
 	tabled_srv.object_count = objcount;
+	return 0;
 }
 

@@ -110,6 +110,9 @@ struct compiled_pat patterns[] = {
 static char *state_name_cld[] = {
 	"Init", "Active"
 };
+static char *state_name_tdb[ST_TDBNUM] = {
+	"Init", "Open", "Active", "Master", "Slave"
+};
 
 static struct {
 	const char	*code;
@@ -346,8 +349,9 @@ static void stats_dump(void)
 	X(event);
 	X(tcp_accept);
 	X(opt_write);
-	syslog(LOG_INFO, "State: CLD %s",
-	    state_name_cld[tabled_srv.state_cld]);
+	syslog(LOG_INFO, "State: CLD %s TDB %s",
+	    state_name_cld[tabled_srv.state_cld],
+	    state_name_tdb[tabled_srv.state_tdb]);
 }
 
 #undef X
@@ -745,6 +749,18 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	bool expect_cont = false;
 	enum errcode err;
 
+	/*
+ 	 * We only start listen() when tdb elections are finished. So,
+ 	 * this can only trip if we go backwards from Master or Client,
+	 * which should be impossible, but let's check anyway.
+	 * FIXME needs a separate error code.
+	 */
+	if (!(tabled_srv.state_tdb == ST_TDB_MASTER ||
+	      tabled_srv.state_tdb == ST_TDB_SLAVE)) {
+		err = AccessDenied;
+		goto err_out;
+	}
+
 	/* grab useful headers */
 	host = req_hdr(req, "host");
 	content_len_str = req_hdr(req, "content-length");
@@ -824,13 +840,22 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			err = MissingContentLength;
 			goto err_out;
 		}
+		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
+			err = AccessDenied;
+			goto err_out;
+		}
 
 		content_len = atol(content_len_str);
 
 		rcb = object_put(cli, user, bucket, key, content_len,
 				 expect_cont);
-	} else if (bucket && key && !strcmp(method, "DELETE"))
+	} else if (bucket && key && !strcmp(method, "DELETE")) {
 		rcb = object_del(cli, user, bucket, key);
+		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
+			err = AccessDenied;
+			goto err_out;
+		}
+	}
 
 	/*
 	 * operations on buckets
@@ -843,9 +868,17 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			err = AccessDenied;
 			goto err_out;
 		}
+		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
+			err = AccessDenied;
+			goto err_out;
+		}
 		rcb = bucket_add(cli, user, bucket);
 	}
 	else if (bucket && !key && !strcmp(method, "DELETE")) {
+		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
+			err = AccessDenied;
+			goto err_out;
+		}
 		rcb = bucket_del(cli, user, bucket);
 	}
 
@@ -1230,6 +1263,74 @@ static void tdb_checkpoint(int fd, short events, void *userdata)
 	add_chkpt_timer();
 }
 
+static void tdb_state_cb(enum db_event event)
+{
+
+	switch (event) {
+	case TDB_EV_ELECTED:
+		/*
+		 * Safe to stop ignoring bogus client indication,
+		 * so unmute us by advancing the state.
+		 */
+		if (tabled_srv.state_tdb == ST_TDB_OPEN)
+			tabled_srv.state_tdb = ST_TDB_ACTIVE;
+		break;
+	case TDB_EV_CLIENT:
+	case TDB_EV_MASTER:
+		/*
+		 * This callback runs on the context of the replication
+		 * manager thread, and calling any of our functions thus
+		 * turns our program into a multi-threaded one. Instead
+		 * we do a loopbreak and postpone the processing.
+		 */
+		if (tabled_srv.state_tdb != ST_TDB_INIT &&
+		    tabled_srv.state_tdb != ST_TDB_OPEN) {
+			if (event == TDB_EV_MASTER)
+				tabled_srv.state_tdb_new = ST_TDB_MASTER;
+			else
+				tabled_srv.state_tdb_new = ST_TDB_SLAVE;
+			if (debugging) {
+				syslog(LOG_DEBUG, "TDB state > %s",
+				       state_name_tdb[tabled_srv.state_tdb_new]);
+			}
+			event_loopbreak();
+		}
+		break;
+	default:
+		syslog(LOG_WARNING, "API confusion with TDB, event 0x%x", event);
+		tabled_srv.state_tdb = ST_TDB_OPEN;  /* wrong, stub for now */
+		tabled_srv.state_tdb_new = ST_TDB_INIT;
+	}
+}
+
+static void cld_state_cb(enum st_cld newstate)
+{
+	unsigned int env_flags;
+
+	if (debugging) {
+		syslog(LOG_DEBUG, "CLD state %s > %s",
+		       state_name_cld[tabled_srv.state_cld],
+		       state_name_cld[newstate]);
+	}
+	tabled_srv.state_cld = newstate;
+	if (newstate == ST_CLD_ACTIVE) {
+		if (tabled_srv.state_tdb == ST_TDB_INIT) {
+			tabled_srv.state_tdb = ST_TDB_OPEN;
+
+			env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+			if (tdb_init(&tdb, tabled_srv.tdb_dir, NULL,
+				     env_flags, "tabled", true,
+				     tabled_srv.rep_remotes,
+				     tabled_srv.ourhost, tabled_srv.rep_port,
+				     tdb_state_cb)) {
+				tabled_srv.state_tdb = ST_TDB_INIT;
+				syslog(LOG_ERR, "Failed to open TDB, limping");
+			}
+		}
+		/* FIXME re-poke in case of TDB_MASTER, slave list may change */
+	}
+}
+
 static int net_open(void)
 {
 	int ipv6_found;
@@ -1292,12 +1393,6 @@ static int net_open(void)
 			goto err_out;
 		}
 
-		if (listen(fd, 100) < 0) {
-			syslogerr("tcp listen");
-			rc = -errno;
-			goto err_out;
-		}
-
 		rc = fsetflags("tcp server", fd, O_NONBLOCK);
 		if (rc)
 			goto err_out;
@@ -1313,24 +1408,43 @@ static int net_open(void)
 		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
 			  tcp_srv_event, sock);
 
-		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp socket event_add");
-			rc = -EIO;
-			goto err_out;
-		}
-
-		tabled_srv.sockets =
-			g_list_append(tabled_srv.sockets, sock);
+		tabled_srv.sockets = g_list_append(tabled_srv.sockets, sock);
 	}
 
 	freeaddrinfo(res0);
 
+	tabled_srv.state_net = ST_NET_OPEN;
 	return 0;
 
 err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
+}
+
+static void net_listen(void)
+{
+	GList *tmp;
+
+	if (tabled_srv.state_net != ST_NET_OPEN)
+		return;
+
+	for (tmp = tabled_srv.sockets; tmp; tmp = tmp->next) {
+		struct server_socket *sock = tmp->data;
+
+		if (listen(sock->fd, 100) < 0) {
+			syslog(LOG_WARNING, "tcp socket listen: %s",
+			       strerror(errno));
+			continue;
+		}
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			syslog(LOG_WARNING, "tcp socket event_add");
+			continue;
+		}
+	}
+
+	tabled_srv.state_net = ST_NET_LISTEN;
 }
 
 static void compile_patterns(void)
@@ -1352,14 +1466,34 @@ static void compile_patterns(void)
 	}
 }
 
+static void tdb_state_process(enum st_tdb new_state)
+{
+	unsigned int db_flags;
+
+	if ((new_state == ST_TDB_MASTER || new_state == ST_TDB_SLAVE) &&
+	    tabled_srv.state_tdb == ST_TDB_ACTIVE) {
+
+		db_flags = DB_CREATE | DB_THREAD;
+		if (tdb_up(&tdb, db_flags))
+			return;
+
+		if (objid_init()) {
+			tdb_down(&tdb);
+			return;
+		}
+		add_chkpt_timer();
+		net_listen();
+	}
+}
+
 int main (int argc, char *argv[])
 {
-	unsigned int env_flags, db_flags;
 	error_t aprc;
 	int rc = 1;
 
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
 	tabled_srv.state_cld = ST_CLD_INIT;
+	tabled_srv.state_tdb = ST_TDB_INIT;
 
 	/* initialize the random number as needed for libchunkdc */
 	srand(time(NULL));
@@ -1418,25 +1552,16 @@ int main (int argc, char *argv[])
 	signal(SIGUSR1, stats_signal);
 
 	event_init();
-
-	tdb.home = tabled_srv.tdb_dir;
-	env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
-	db_flags = DB_CREATE | DB_THREAD;
-	if (tdb_open(&tdb, env_flags, db_flags, "tabled", true))
-		exit(1);
-
-	objid_init();
-	stor_init();
-
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
-	add_chkpt_timer();
+
+	stor_init();
 
 	/* set up server networking */
 	rc = net_open();
 	if (rc)
 		goto err_out_net;
 
-	if (cld_begin(tabled_srv.ourhost, NULL, NULL) != 0) {
+	if (cld_begin(tabled_srv.ourhost, NULL, cld_state_cb) != 0) {
 		rc = 1;
 		goto err_cld_session;
 	}
@@ -1451,16 +1576,31 @@ int main (int argc, char *argv[])
 			dump_stats = false;
 			stats_dump();
 		}
+
+		if (tabled_srv.state_tdb_new != ST_TDB_INIT &&
+		    tabled_srv.state_tdb_new != tabled_srv.state_tdb) {
+			tdb_state_process(tabled_srv.state_tdb_new);
+			tabled_srv.state_tdb = tabled_srv.state_tdb_new;
+		}
 	}
 
 	syslog(LOG_INFO, "shutting down");
+
+	cld_end();
 
 	rc = 0;
 
 err_cld_session:
 	/* net_close(); */
 err_out_net:
-	tdb_close(&tdb);
+	if (tabled_srv.state_tdb == ST_TDB_MASTER ||
+	    tabled_srv.state_tdb == ST_TDB_SLAVE) {
+		tdb_down(&tdb);
+		tdb_fini(&tdb);
+	} else if (tabled_srv.state_tdb == ST_TDB_OPEN ||
+		   tabled_srv.state_tdb == ST_TDB_ACTIVE) {
+		tdb_fini(&tdb);
+	}
 /* err_tdb_init: */
 	unlink(tabled_srv.pid_file);
 	close(tabled_srv.pid_fd);
