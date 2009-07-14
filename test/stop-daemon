@@ -36,4 +36,11 @@ else
 	killpid chunkd.pid || ret=1
 fi
 
+if [ ! -f cld.pid ]
+then
+	echo "No cld PID file found." >&2
+else
+	killpid cld.pid || ret=1
+fi
+
 exit "$ret"

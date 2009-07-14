@@ -84,6 +84,7 @@ AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 PKG_CHECK_MODULES(CHUNKDC, libchunkdc)
+PKG_CHECK_MODULES(CLDC, libcldc)
 
 dnl -------------------------------------
 dnl Checks for optional library functions

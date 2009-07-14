@@ -107,6 +107,10 @@ struct compiled_pat patterns[] = {
 	{ "\\d+\\.\\d+\\.\\d+\\.\\d+" },
 };
 
+static char *state_name_cld[] = {
+	"Init", "Active"
+};
+
 static struct {
 	const char	*code;
 	int		status;
@@ -186,6 +190,34 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	}
 
 	return 0;
+}
+
+/*
+ * Find out own hostname.
+ * This is needed for:
+ *  - announcing ourselves in CLD in case we're DB master
+ *  - finding the local domain and its SRV records
+ * Do this before our state machines start ticking, so we can quit with
+ * a meaningful message easily.
+ */
+static char *get_hostname(void)
+{
+	enum { hostsz = 64 };
+	char hostb[hostsz];
+	char *ret;
+
+	if (gethostname(hostb, hostsz-1) < 0) {
+		syslog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		       errno, strerror(errno));
+		exit(1);
+	}
+	hostb[hostsz-1] = 0;
+	if ((ret = strdup(hostb)) == NULL) {
+		syslog(LOG_ERR, "get_hostname: no core (%ld)",
+		       (long)strlen(hostb));
+		exit(1);
+	}
+	return ret;
 }
 
 /*
@@ -314,6 +346,8 @@ static void stats_dump(void)
 	X(event);
 	X(tcp_accept);
 	X(opt_write);
+	syslog(LOG_INFO, "State: CLD %s",
+	    state_name_cld[tabled_srv.state_cld]);
 }
 
 #undef X
@@ -1325,6 +1359,7 @@ int main (int argc, char *argv[])
 	int rc = 1;
 
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
+	tabled_srv.state_cld = ST_CLD_INIT;
 
 	/* initialize the random number as needed for libchunkdc */
 	srand(time(NULL));
@@ -1358,6 +1393,7 @@ int main (int argc, char *argv[])
 	 * now we can parse the configuration, errors to syslog
 	 */
 	read_config();
+	tabled_srv.ourhost = get_hostname();
 
 	/*
 	 * background outselves, write PID file ASAP
@@ -1398,7 +1434,12 @@ int main (int argc, char *argv[])
 	/* set up server networking */
 	rc = net_open();
 	if (rc)
-		goto err_out_pid;
+		goto err_out_net;
+
+	if (cld_begin(tabled_srv.ourhost, NULL, NULL) != 0) {
+		rc = 1;
+		goto err_cld_session;
+	}
 
 	syslog(LOG_INFO, "initialized (%s)",
 	   (tabled_srv.flags & SFL_FOREGROUND)? "fg": "bg");
@@ -1416,9 +1457,9 @@ int main (int argc, char *argv[])
 
 	rc = 0;
 
-// err_cld_session:
+err_cld_session:
 	/* net_close(); */
-err_out_pid:
+err_out_net:
 	tdb_close(&tdb);
 /* err_tdb_init: */
 	unlink(tabled_srv.pid_file);

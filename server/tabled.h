@@ -171,6 +171,10 @@ struct client {
 	char			req_buf[CLI_REQ_BUF_SZ]; /* input buffer */
 };
 
+enum st_cld {
+	ST_CLD_INIT, ST_CLD_ACTIVE
+};
+
 struct server_stats {
 	unsigned long		poll;		/* number polls */
 	unsigned long		event;		/* events dispatched */
@@ -196,11 +200,14 @@ struct server {
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
 
+	char			*ourhost;	/* use this if DB master */
 	struct database		*db;		/* database handle */
 
 	GList			*sockets;
 	struct list_head	all_stor;	/* struct storage_node */
 	uint64_t		object_count;
+
+	enum st_cld		state_cld;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */
 
@@ -234,6 +241,12 @@ extern bool object_get(struct client *cli, const char *user, const char *bucket,
 extern bool cli_evt_http_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
+
+/* cldc.c */
+extern void cldu_add_host(const char *host, unsigned int port);
+extern int cld_begin(const char *fqdn, const char *cell,
+		     void (*state_cb)(enum st_cld));
+extern void cld_end(void);
 
 /* util.c */
 extern size_t strlist_len(GList *l);

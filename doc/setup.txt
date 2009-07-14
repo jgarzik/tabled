@@ -2,6 +2,19 @@
 Setup instructions
 ==================
 
+*) Make sure a CLD is running somewhere on the network, and has an SRV record,
+   which typically looks like this:
+
+[root@table1 ~]# host -t srv _cld._udp
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
+_cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
+[root@table1 ~]# 
+
+   If this does not work, set up CLD before proceeding.
+
+   Also, make sure that your hostname has a domain. We don't want to search
+   for CLD in the DNS root, do we?
+
 *) Copy configuration file from doc/etc.tabled.conf to /etc/tabled.conf
    and edit to suit (see configurable items below).
 

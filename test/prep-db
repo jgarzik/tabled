@@ -2,9 +2,11 @@
 
 DATADIR=data
 TDBDIR=$DATADIR/tdb
+CLDDIR=$DATADIR/cld
 CHUNKDIR=$DATADIR/chunk
 
 mkdir -p $TDBDIR
+mkdir -p $CLDDIR
 mkdir -p $CHUNKDIR
 
 cat $top_srcdir/test/users.data | ../server/tdbadm -u -t $TDBDIR
