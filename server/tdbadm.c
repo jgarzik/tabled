@@ -67,7 +67,7 @@ static struct argp_option options[] = {
 };
 
 static const char doc[] =
-"tbladm - TDB administration";
+"tdbadm - TDB administration";
 
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
