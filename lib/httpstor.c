@@ -475,7 +475,8 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 	curl_easy_setopt(httpstor->curl, CURLOPT_READDATA, user_data);
 	curl_easy_setopt(httpstor->curl, CURLOPT_CUSTOMREQUEST, req.method);
 	curl_easy_setopt(httpstor->curl, CURLOPT_UPLOAD, 1);
-	curl_easy_setopt(httpstor->curl, CURLOPT_INFILESIZE_LARGE, len);
+	curl_easy_setopt(httpstor->curl, CURLOPT_INFILESIZE_LARGE,
+			 (curl_off_t)len);
 	curl_easy_setopt(httpstor->curl, CURLOPT_TCP_NODELAY, 1);
 
 	rc = curl_easy_perform(httpstor->curl);
