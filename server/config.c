@@ -200,6 +200,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "StorageNode")) {
 		cfg_elm_end_storage(cc);
+		cc->in_storage = false;
 	}
 
 	else if (!strcmp(element_name, "Port")) {
