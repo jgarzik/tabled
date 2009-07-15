@@ -6,7 +6,7 @@ Summary:        Distributed key/value table service
 Group:          System Environment/Base
 License:        GPLv2
 URL:            http://www.kernel.org/pub/software/network/distsrv/
-Source0:        tabled-0.3git.1234abc.tar.gz
+Source0:        tabled-0.3git.tar.gz
 Source2:        tabled.init
 Source3:        tabled.sysconf
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
