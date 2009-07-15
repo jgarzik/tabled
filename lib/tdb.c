@@ -89,7 +89,6 @@ retry:
 		rc = db->set_bt_compare(db, bt_compare);
 		if (rc) {
 			db->err(db, rc, "db->set_bt_compare");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -98,7 +97,6 @@ retry:
 		rc = db->set_flags(db, fset);
 		if (rc) {
 			db->err(db, rc, "db->set_flags");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -107,7 +105,6 @@ retry:
 		rc = db->set_dup_compare(db, dup_compare);
 		if (rc) {
 			db->err(db, rc, "db->set_dup_compare");
-			rc = -EIO;
 			goto err_out;
 		}
 	}
