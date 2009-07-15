@@ -1,3 +1,6 @@
 
-EXTRA_DIST = setup.txt states.txt
+EXTRA_DIST =	\
+	contributions.txt	\
+	setup.txt		\
+	states.txt
 
