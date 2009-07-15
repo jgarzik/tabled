@@ -119,6 +119,10 @@ static struct {
 	int		status;
 	const char	*msg;
 } err_info[] = {
+	[RedirectClient] =
+	{ "Redirect", 307,
+	  "Not a master" },
+
 	[AccessDenied] =
 	{ "AccessDenied", 403,
 	  "Access denied" },
@@ -655,21 +659,46 @@ bool cli_err(struct client *cli, enum errcode code)
 	if (!content)
 		return false;
 
-	if (asprintf(&hdr,
-"HTTP/%d.%d %d x\r\n"
-"Content-Type: application/xml\r\n"
-"Content-Length: %zu\r\n"
-"Date: %s\r\n"
-"Connection: close\r\n"
-"Server: " PACKAGE_STRING "\r\n"
-"\r\n",
-		     cli->req.major,
-		     cli->req.minor,
-		     err_info[code].status,
-		     strlen(content),
-		     time2str(timestr, time(NULL))) < 0) {
-		free(content);
-		return false;
+	if (code == RedirectClient) {
+		/*
+		 * FIXME '*' for URI is bogus. We keep this until we know
+		 * how to test this code path.
+		 */
+		if (asprintf(&hdr,
+			"HTTP/%d.%d %d x\r\n"
+			"Content-Type: application/xml\r\n"
+			"Content-Length: %zu\r\n"
+			"Date: %s\r\n"
+			"Connection: close\r\n"
+			"Server: " PACKAGE_STRING "\r\n"
+			"Location: %s\r\n"
+			"\r\n",
+			     cli->req.major,
+			     cli->req.minor,
+			     err_info[code].status,
+			     strlen(content),
+			     time2str(timestr, time(NULL)),
+			     "*") < 0) {
+			free(content);
+			return false;
+		}
+	} else {
+		if (asprintf(&hdr,
+			"HTTP/%d.%d %d x\r\n"
+			"Content-Type: application/xml\r\n"
+			"Content-Length: %zu\r\n"
+			"Date: %s\r\n"
+			"Connection: close\r\n"
+			"Server: " PACKAGE_STRING "\r\n"
+			"\r\n",
+			     cli->req.major,
+			     cli->req.minor,
+			     err_info[code].status,
+			     strlen(content),
+			     time2str(timestr, time(NULL))) < 0) {
+			free(content);
+			return false;
+		}
 	}
 
 	cli->state = evt_dispose;
@@ -753,11 +782,10 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
  	 * We only start listen() when tdb elections are finished. So,
  	 * this can only trip if we go backwards from Master or Client,
 	 * which should be impossible, but let's check anyway.
-	 * FIXME needs a separate error code.
 	 */
 	if (!(tabled_srv.state_tdb == ST_TDB_MASTER ||
 	      tabled_srv.state_tdb == ST_TDB_SLAVE)) {
-		err = AccessDenied;
+		err = InternalError;
 		goto err_out;
 	}
 
@@ -841,7 +869,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			goto err_out;
 		}
 		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
-			err = AccessDenied;
+			err = RedirectClient;
 			goto err_out;
 		}
 
@@ -852,7 +880,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	} else if (bucket && key && !strcmp(method, "DELETE")) {
 		rcb = object_del(cli, user, bucket, key);
 		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
-			err = AccessDenied;
+			err = RedirectClient;
 			goto err_out;
 		}
 	}
@@ -869,14 +897,14 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 			goto err_out;
 		}
 		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
-			err = AccessDenied;
+			err = RedirectClient;
 			goto err_out;
 		}
 		rcb = bucket_add(cli, user, bucket);
 	}
 	else if (bucket && !key && !strcmp(method, "DELETE")) {
 		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
-			err = AccessDenied;
+			err = RedirectClient;
 			goto err_out;
 		}
 		rcb = bucket_del(cli, user, bucket);

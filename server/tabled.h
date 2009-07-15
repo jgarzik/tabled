@@ -49,6 +49,7 @@ enum {
 };
 
 enum errcode {
+	RedirectClient,
 	AccessDenied,
 	BucketAlreadyExists,
 	BucketNotEmpty,
