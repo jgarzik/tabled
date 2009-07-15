@@ -53,6 +53,8 @@ static int buckets_owner_idx(DB *secondary, const DBT *pkey, const DBT *pdata,
 
 static int open_db(DB_ENV *env, DB **db_out, const char *name,
 		   unsigned int page_size, DBTYPE dbtype, unsigned int flags,
+		   int (*bt_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
+		   int (*dup_compare)(DB *db, const DBT *dbt1, const DBT *dbt2),
 		   unsigned int fset)
 {
 	int rc;
@@ -83,10 +85,29 @@ retry:
 		goto err_out;
 	}
 
+	if (bt_compare) {
+		rc = db->set_bt_compare(db, bt_compare);
+		if (rc) {
+			db->err(db, rc, "db->set_bt_compare");
+			rc = -EIO;
+			goto err_out;
+		}
+	}
+
 	if (fset) {
 		rc = db->set_flags(db, fset);
 		if (rc) {
 			db->err(db, rc, "db->set_flags");
+			rc = -EIO;
+			goto err_out;
+		}
+	}
+
+	if (dup_compare) {
+		rc = db->set_dup_compare(db, dup_compare);
+		if (rc) {
+			db->err(db, rc, "db->set_dup_compare");
+			rc = -EIO;
 			goto err_out;
 		}
 	}
@@ -311,17 +332,17 @@ int tdb_up(struct tabledb *tdb, unsigned int flags)
 		flags |= DB_ENCRYPT;
 
 	rc = open_db(dbenv, &tdb->passwd, "passwd", TDB_PGSZ_PASSWD,
-		     DB_HASH, flags, 0);
+		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out;
 
 	rc = open_db(dbenv, &tdb->buckets, "buckets", TDB_PGSZ_BUCKETS,
-		     DB_HASH, flags, 0);
+		     DB_HASH, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_passwd;
 
 	rc = open_db(dbenv, &tdb->buckets_idx, "buckets_idx",
-		     TDB_PGSZ_BUCKETS_IDX, DB_HASH, flags, DB_DUP);
+		     TDB_PGSZ_BUCKETS_IDX, DB_HASH, flags, NULL, NULL, DB_DUP);
 	if (rc)
 		goto err_out_buckets;
 
@@ -334,16 +355,17 @@ int tdb_up(struct tabledb *tdb, unsigned int flags)
 	}
 
 	rc = open_db(dbenv, &tdb->acls, "acls", TDB_PGSZ_ACLS,
-		     DB_HASH, flags, DB_DUP);
+		     DB_HASH, flags, NULL, NULL, DB_DUP);
 	if (rc)
 		goto err_out_bidx;
 
 	rc = open_db(dbenv, &tdb->objs, "objs", TDB_PGSZ_OBJS,
-		     DB_BTREE, flags, 0);
+		     DB_BTREE, flags, NULL, NULL, 0);
 	if (rc)
 		goto err_out_acls;
 
-	rc = open_db(dbenv, &tdb->oids, "oids", 0, DB_RECNO, flags, 0);
+	rc = open_db(dbenv, &tdb->oids, "oids", 0, DB_RECNO, flags, NULL,
+		     NULL, 0);
 	if (rc)
 		goto err_out_obj;
 
