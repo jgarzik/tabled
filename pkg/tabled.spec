@@ -1,26 +1,26 @@
-Name:           tabled
-Version:        0.3git
-Release:        4%{?dist}
-Summary:        Distributed key/value table service
+Name:		tabled
+Version:	0.3git
+Release:	5%{?dist}
+Summary:	Distributed key/value table service
 
-Group:          System Environment/Base
-License:        GPLv2
+Group:		System Environment/Base
+License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# tarball pulled from tip of upstream git repo
-Source0:        tabled-0.3git.tar.gz
-Source2:        tabled.init
-Source3:        tabled.sysconf
-BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+# pulled from upstream git, commit c42a62d851580270d9c56f104cfb5619074bd130
+Source0:	tabled-0.3git.tar.gz
+Source2:	tabled.init
+Source3:	tabled.sysconf
+BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # N.B. We need chunkd and cld to build, because our "make check" spawns
 # private copies of infrastructure daemons.
-BuildRequires:  db4-devel libevent-devel glib2-devel pcre-devel
-BuildRequires:  chunkd chunkd-devel cld cld-devel
+BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
+BuildRequires:	chunkd chunkd-devel cld cld-devel
 
 # cld is broken on big-endian... embarrassing!!!
 # FIXME: remove this when cld is fixed
-ExcludeArch: ppc ppc64
+ExcludeArch:	ppc ppc64
 
 %description
 Distributed key/value table service
@@ -51,8 +51,8 @@ make install DESTDIR=%{buildroot}
 mkdir -p %{buildroot}%{_initddir}
 install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/tabled
 
-mkdir -p %{buildroot}/etc/sysconfig
-install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/tabled
+mkdir -p %{buildroot}%{_sysconfdir}/sysconfig
+install -m 644 %{SOURCE3} %{buildroot}%{_sysconfdir}/sysconfig/tabled
 
 find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 
@@ -81,12 +81,12 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS README NEWS doc/*.txt
+%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/tabled
 %{_sbindir}/tdbadm
 %{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/tabled
-%attr(0644,root,root)	%{_sysconfdir}/sysconfig/tabled
+%config(noreplace)	%{_sysconfdir}/sysconfig/tabled
 
 %files devel
 %defattr(-,root,root,-)
@@ -95,6 +95,11 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-5%{?dist}
+- chkconfig default off
+- add docs: COPYING, LICENSE
+- config(noreplace) sysconfig/tabled
+
 * Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-4%{?dist}
 - minor spec updates for review feedback, Fedora packaging guidelines
 

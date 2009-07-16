@@ -4,5 +4,5 @@
 
 SUBDIRS		= doc lib include server test
 
-EXTRA_DIST	= autogen.sh
+EXTRA_DIST	= autogen.sh COPYING LICENSE
 
