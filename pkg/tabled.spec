@@ -1,11 +1,13 @@
 Name:           tabled
 Version:        0.3git
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Distributed key/value table service
 
 Group:          System Environment/Base
 License:        GPLv2
-URL:            http://www.kernel.org/pub/software/network/distsrv/
+URL:		http://hail.wiki.kernel.org/
+
+# tarball pulled from tip of upstream git repo
 Source0:        tabled-0.3git.tar.gz
 Source2:        tabled.init
 Source3:        tabled.sysconf
@@ -13,45 +15,52 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 # N.B. We need chunkd and cld to build, because our "make check" spawns
 # private copies of infrastructure daemons.
-BuildRequires:  db4-devel libevent-devel glib2-devel pcre-devel chunkd chunkd-devel cld cld-devel
+BuildRequires:  db4-devel libevent-devel glib2-devel pcre-devel
+BuildRequires:  chunkd chunkd-devel cld cld-devel
+
+# cld is broken on big-endian... embarrassing!!!
+# FIXME: remove this when cld is fixed
+ExcludeArch: ppc ppc64
 
 %description
 Distributed key/value table service
 
 %package devel
-Summary: Header files, libraries and development documentation for %{name}
+Summary: Development files for %{name}
 Group: Development/Libraries
 Requires: %{name} = %{version}-%{release}
+Requires: pkgconfig
 
 %description devel
-This package contains the header files, static libraries and development
-documentation for %{name}. If you like to develop programs using %{name},
-you will need to install %{name}-devel.
+The %{name}-devel package contains libraries and header files for
+developing applications that use %{name}.
 
 %prep
 %setup -q
 
 
 %build
-%configure
+%configure --disable-static
 make %{?_smp_mflags}
 
 
 %install
-rm -rf $RPM_BUILD_ROOT
-make install DESTDIR=$RPM_BUILD_ROOT
+rm -rf %{buildroot}
+make install DESTDIR=%{buildroot}
 
-mkdir -p %{buildroot}%{_sysconfdir}/rc.d/init.d
-install -m 755 %{SOURCE2} %{buildroot}%{_sysconfdir}/rc.d/init.d/tabled
+mkdir -p %{buildroot}%{_initddir}
+install -m 755 %{SOURCE2} %{buildroot}%{_initddir}/tabled
 
 mkdir -p %{buildroot}/etc/sysconfig
 install -m 755 %{SOURCE3} %{buildroot}/etc/sysconfig/tabled
+
+find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 
 %check
 make -s check
 
 %clean
-rm -rf $RPM_BUILD_ROOT
+rm -rf %{buildroot}
 
 %post
 /sbin/ldconfig
@@ -72,22 +81,23 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc README NEWS doc/*.txt
+%doc AUTHORS README NEWS doc/*.txt
 %{_sbindir}/tabled
 %{_sbindir}/tdbadm
-%{_libdir}/lib*.so.*
-%attr(0755,root,root)           %{_sysconfdir}/rc.d/init.d/tabled
-%attr(0644,root,root)           %{_sysconfdir}/sysconfig/tabled
+%{_libdir}/*.so.*
+%attr(0755,root,root)	%{_initddir}/tabled
+%attr(0644,root,root)	%{_sysconfdir}/sysconfig/tabled
 
 %files devel
-%defattr(-,root,root,0644)
+%defattr(-,root,root,-)
 %{_libdir}/lib*.so
-%{_libdir}/lib*.a
-%{_libdir}/lib*.la
 %{_libdir}/pkgconfig/*
-%{_includedir}/*.h
+%{_includedir}/*
 
 %changelog
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-4%{?dist}
+- minor spec updates for review feedback, Fedora packaging guidelines
+
 * Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-3%{?dist}
 - rename lib to libhttpstor
 
