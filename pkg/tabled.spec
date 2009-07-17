@@ -95,23 +95,23 @@ fi
 %{_includedir}/*
 
 %changelog
-* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.1.g2783d260%{?dist}
+* Fri Jul 17 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.1.g2783d260
 - new release version scheme
 
-* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-5%{?dist}
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-5
 - chkconfig default off
 - add docs: COPYING, LICENSE
 - config(noreplace) sysconfig/tabled
 
-* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-4%{?dist}
+* Thu Jul 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-4
 - minor spec updates for review feedback, Fedora packaging guidelines
 
-* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-3%{?dist}
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-3
 - rename lib to libhttpstor
 
-* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-2%{?dist}
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-2
 - package and ship libs3c
 
-* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1%{?dist}
+* Wed Mar 18 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3git-1
 - initial release
 
