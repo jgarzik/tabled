@@ -33,7 +33,7 @@ m4_define([libhttpstor_age], [m4_eval(libhttpstor_binary_age - libhttpstor_inter
 m4_define([libhttpstor_version], [libhttpstor_major_version().libhttpstor_minor_version().libhttpstor_micro_version()libhttpstor_extraversion()])
 
 AC_INIT([tabled], [0.3git],
-        [http://www.kernel.org/pub/software/network/distsrv/])
+        [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
 AC_CONFIG_SRCDIR([server/server.c])

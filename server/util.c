@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <ctype.h>
 #include <errno.h>
 #include <syslog.h>
