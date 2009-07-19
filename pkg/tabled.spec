@@ -24,7 +24,12 @@ BuildRequires:	chunkd chunkd-devel cld cld-devel
 ExcludeArch:	ppc ppc64
 
 %description
-Distributed key/value table service
+tabled provides an infinitely scalable, lexicographically sorted
+key/value lookup table. Keys cannot exceed 1024 bytes; values can be
+any size, including several gigabytes or more.
+
+tabled user interface is HTTP REST, and is intended to be compatible with
+existing Amazon S3 clients.
 
 %package devel
 Summary: Development files for %{name}
