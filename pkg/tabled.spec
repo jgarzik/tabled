@@ -8,6 +8,7 @@ License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
 # pulled from upstream git, commit 2783d2605317c611a051784a71c48383f21c6b9c
+# to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
 Source3:	tabled.sysconf
