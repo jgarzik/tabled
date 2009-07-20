@@ -21,21 +21,13 @@
 
 #define N_CLD		10	/* 5 * (v4+v6) */
 
-struct cld_host {
-	int known;
-	unsigned int prio;
-	unsigned int weight;
-	char *host;
-	unsigned short port;
-};
-
 struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
 	bool sess_open;
 	struct cldc_udp *lib;		/* library state */
 
 	int actx;		/* Active host cldv[actx] */
-	struct cld_host cldv[N_CLD];
+	struct cldc_host cldv[N_CLD];
 
 	struct event ev;	/* Associated with fd */
 	char *cfname;		/* /tabled-cell directory */
@@ -128,254 +120,6 @@ static int cldu_setcell(struct cld_session *sp, const char *thiscell)
 	mem = malloc(mlen);
 	sprintf(mem, "/tabled-%s/%s", thiscell, tabled_srv.ourhost);
 	sp->ffname = mem;
-
-	return 0;
-}
-
-/*
- * Helper: Look up the host to verify it, then save the parameters into
- * our struct (*hp). This way the application quits early if DNS is set wrong.
- */
-static int cldu_saveaddr(struct cld_host *hp, unsigned int priority,
-			 unsigned int weight, unsigned int port,
-			 unsigned int nlen, const char *name)
-{
-	char portstr[11];
-	char *hostname;
-	struct addrinfo hints;
-	struct addrinfo *res, *res0;
-	bool something_suitable;
-	int rc;
-
-	sprintf(portstr, "%u", port);
-
-	hostname = malloc(nlen + 1);
-	if (!hostname) {
-		rc = -ENOMEM;
-		goto err_name;
-	}
-	memcpy(hostname, name, nlen);
-	hostname[nlen] = 0;
-
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_family = PF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
-
-	rc = getaddrinfo(hostname, portstr, &hints, &res0);
-	if (rc) {
-		syslog(LOG_ERR, "getaddrinfo(%s,%s) failed: %s",
-		       hostname, portstr, gai_strerror(rc));
-		rc = -EINVAL;
-		goto err_addr;
-	}
-
-	something_suitable = false;
-	for (res = res0; res; res = res->ai_next) {
-		if (res->ai_family != AF_INET && res->ai_family != AF_INET6)
-			continue;
-
-		if (res->ai_addrlen > ADDRSIZE)		/* should not happen */
-			continue;
-
-		something_suitable = true;
-		break;
-	}
-
-	if (!something_suitable) {
-		syslog(LOG_ERR, "Host %s port %u has no addresses",
-		       hostname, port);
-		rc = -EINVAL;
-		goto err_suitable;
-	}
-
-	hp->host = hostname;
-	hp->port = port;
-	hp->prio = priority;
-	hp->weight = weight;
-
-	if (debugging) {
-		syslog(LOG_INFO,
-		       "Found CLD host %s prio %d weight %d",
-		       hostname, priority, weight);
-	}
-
-	freeaddrinfo(res0);
-	return 0;
-
-err_suitable:
-	freeaddrinfo(res0);
-err_addr:
-	free(hostname);
-err_name:
-	return rc;
-}
-
-/*
- * Apparently, the only viable way to find out the DNS domain is to take
- * the hostname, then lop off the first member. We do not support running
- * on YP-driven networks with nonqualified hostnames (at least for now).
- */
-static int cldu_make_fqdn(char *buf, int size, const char *srvname,
-    const char *thishost)
-{
-	char *s;
-	int nlen;
-	int dlen;
-
-	nlen = strlen(srvname);
-	if (nlen >= size-20) {
-		syslog(LOG_ERR,
-		       "cldc_getaddr: internal error (nlen %d size %d)",
-		       nlen, size);
-		return -1;
-	}
-
-	if (thishost == NULL) {
-		syslog(LOG_ERR, "cldc_getaddr: internal error (null hostname)");
-		return -1;
-	}
-	if ((s = strchr(thishost, '.')) == NULL) {
-		syslog(LOG_ERR,
-		       "cldc_getaddr: hostname is not FQDN: \"%s\"",
-		       thishost);
-		return -1;
-	}
-	s++;
-
-	dlen = strlen(s);
-	if (nlen + 1 + dlen + 1 > size) {
-		syslog(LOG_ERR,
-		       "cldc_getaddr: domain is too long: \"%s\"", s);
-		return -1;
-	}
-
-	memcpy(buf, srvname, nlen);
-	buf[nlen] = '.';
-	strcpy(buf + nlen + 1, s);
-
-	return 0;
-}
-
-/*
- * Fill out hosts vector in the session.
- * Despite taking session pointer like everything else, this is not reentrant.
- * Better be called before any other threads are started.
- */
-static int cldu_getaddr(struct cld_session *sp, const char *thishost)
-{
-	enum { hostsz = 64 };
-	char cldb[hostsz];
-	unsigned char resp[512];
-	int rlen;
-	ns_msg nsb;
-	ns_rr rrb;
-	int rrlen;
-	char hostb[hostsz];
-	int i;
-	struct cld_host *hp;
-	int n;
-	const unsigned char *p;
-	int rc;
-
-	/*
-	 * We must create FQDN or else the first thing the resolver does
-	 * is a lookup in the DNS root (probably the standard-compliant
-	 * dot between "_cld" and "_udp" hurts us here).
-	 */
-	if (cldu_make_fqdn(cldb, hostsz, "_cld._udp", thishost) != 0)
-		return -1;
-
-	rc = res_search(cldb, ns_c_in, ns_t_srv, resp, 512);
-	if (rc < 0) {
-		switch (h_errno) {
-		case HOST_NOT_FOUND:
-			syslog(LOG_ERR, "No _cld._udp SRV record");
-			return -1;
-		case NO_DATA:
-			syslog(LOG_ERR, "Cannot find _cld._udp SRV record");
-			return -1;
-		case NO_RECOVERY:
-		case TRY_AGAIN:
-		default:
-			syslog(LOG_ERR,
-			       "cldc_getaddr: res_search error (%d): %s",
-			       h_errno, hstrerror(h_errno));
-			return -1;
-		}
-	}
-	rlen = rc;
-
-	if (rlen == 0) {
-		syslog(LOG_ERR,
-		       "cldc_getaddr: res_search returned empty reply");
-		return -1;
-	}
-
-	if (ns_initparse(resp, rlen, &nsb) < 0) {
-		syslog(LOG_ERR,
-		       "cldc_getaddr: ns_initparse error");
-		return -1;
-	}
-
-	n = 0;
-	hp = &sp->cldv[0];
-	for (i = 0; i < ns_msg_count(nsb, ns_s_an); i++) {
-		rc = ns_parserr(&nsb, ns_s_an, i, &rrb);
-		if (rc < 0)
-			continue;
-
-		if (ns_rr_class(rrb) != ns_c_in)
-			continue;
-
-		switch (ns_rr_type(rrb)) {
-		case ns_t_srv:
-			rrlen = ns_rr_rdlen(rrb);
-			if (rrlen < 8) {	/* 2+2+2 and 2 for host */
-				if (debugging) {
-					syslog(LOG_INFO,
-					       "cldc_getaddr: SRV len %d", 
-					       rrlen);
-				}
-				break;
-			}
-			p = ns_rr_rdata(rrb);
-			rc = dn_expand(resp, resp+rlen, p+6, hostb, hostsz);
-			if (rc < 0) {
-				if (debugging) {
-					syslog(LOG_INFO, "cldc_getaddr: "
-					       "dn_expand error %d", rc);
-				}
-				break;
-			}
-			if (rc < 2) {
-				if (debugging) {
-					syslog(LOG_INFO, "cldc_getaddr: "
-					       "dn_expand short %d", rc);
-				}
-				break;
-			}
-
-			if (n >= N_CLD)
-				break;
-
-			if (cldu_saveaddr(hp, ns_get16(p+0), ns_get16(p+2),
-					  ns_get16(p+4), rc, hostb))
-				break;
-
-			hp->known = 1;
-			n++;
-			hp++;
-			break;
-		case ns_t_cname:	/* impossible, but */
-			if (debugging) {
-				syslog(LOG_INFO,
-				       "CNAME in SRV request, ignored");
-			}
-			break;
-		default:
-			;
-		}
-	}
 
 	return 0;
 }
@@ -474,7 +218,7 @@ static struct cldc_ops cld_ops = {
  */
 static int cldu_set_cldc(struct cld_session *sp, int newactive)
 {
-	struct cld_host *hp;
+	struct cldc_host *hp;
 	struct cldc_udp *lib;
 	struct cldc_call_opts copts;
 	int rc;
@@ -848,10 +592,28 @@ int cld_begin(const char *thishost, const char *thiscell,
 	}
 
 	if (!ses.forced_hosts) {
-		if (cldu_getaddr(&ses, thishost)) {
+		GList *tmp, *host_list = NULL;
+		int i = 0;
+
+		if (cldc_getaddr(&host_list, thishost, debugging, cldu_p_log)) {
 			/* Already logged error */
 			goto err_addr;
 		}
+
+		/* copy host_list into cld_session host array,
+		 * taking ownership of alloc'd strings along the way
+		 */
+		tmp = host_list;
+		while (i < N_CLD && tmp) {
+			memcpy(&ses.cldv[i], tmp->data,
+			       sizeof(struct cldc_host));
+			
+			i++;
+			tmp = tmp->next;
+		}
+
+		/* FIXME: memleak, if list longer than N_CLD */
+		g_list_free(host_list);
 	}
 
 	/*
@@ -899,7 +661,7 @@ void cld_end(void)
 void cldu_add_host(const char *hostname, unsigned int port)
 {
 	static struct cld_session *sp = &ses;
-	struct cld_host *hp;
+	struct cldc_host *hp;
 	int i;
 
 	for (i = 0; i < N_CLD; i++) {
@@ -910,7 +672,8 @@ void cldu_add_host(const char *hostname, unsigned int port)
 	if (i >= N_CLD)
 		return;
 
-	if (cldu_saveaddr(hp, 100, 100, port, strlen(hostname), hostname))
+	if (cldc_saveaddr(hp, 100, 100, port, strlen(hostname), hostname,
+			  debugging, cldu_p_log))
 		return;
 	hp->known = 1;
 
