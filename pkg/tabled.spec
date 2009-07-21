@@ -1,6 +1,6 @@
 Name:		tabled
 Version:	0.3
-Release:	0.2.g6f015fa5%{?dist}
+Release:	0.3.g6f015fa5%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
@@ -17,7 +17,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need chunkd and cld to build, because our "make check" spawns
 # private copies of infrastructure daemons.
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
-BuildRequires:	chunkd chunkd-devel cld cld-devel
+BuildRequires:	chunkd chunkd-devel cld cld-devel libcurl-devel
 
 # cld is broken on big-endian... embarrassing!!!
 # FIXME: remove this when cld is fixed
@@ -101,6 +101,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.3.g6f015fa5
+- BuildRequires: libcurl-devel
+
 * Sun Jul 19 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.2.g6f015fa5
 - update to git commit 6f015fa5f920da809d66e57515672b26d0e82b89
 - expanded description
