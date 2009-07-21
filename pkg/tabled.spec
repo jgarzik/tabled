@@ -1,13 +1,13 @@
 Name:		tabled
 Version:	0.3
-Release:	0.3.g6f015fa5%{?dist}
+Release:	0.5.g8102bcda%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 6f015fa5f920da809d66e57515672b26d0e82b89
+# pulled from upstream git, commit 8102bcda428a9c2d9647d33f21ede6764a514c6e
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
@@ -101,6 +101,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.5.g8102bcda
+- rebuild for koji silliness
+
+* Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.4.g8102bcda
+- update to git commit 8102bcda428a9c2d9647d33f21ede6764a514c6e
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.3.g6f015fa5
 - BuildRequires: libcurl-devel
 
