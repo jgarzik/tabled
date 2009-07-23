@@ -46,6 +46,7 @@ static unsigned long invalid_lines;
 static char *tdb_dir;
 static unsigned short rep_port;
 static char *config = "/etc/tabled.conf";
+static char *ourhost;
 
 static struct tabledb tdb;
 
@@ -129,6 +130,12 @@ static void cfg_elm_end(GMarkupParseContext *context,
 		} else {
 			free(cc->text);
 		}
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "ForceHost") && cc->text) {
+		free(ourhost);
+		ourhost = cc->text;
 		cc->text = NULL;
 	}
 
@@ -614,7 +621,9 @@ int main(int argc, char *argv[])
 	if (!tdb_dir)
 		die("no tdb dir (-t) specified\n");
 
-	if (gethostname(hostname, sizeof(hostname)) < 0) {
+	if (ourhost)
+		strcpy(hostname, ourhost);
+	else if (gethostname(hostname, sizeof(hostname)) < 0) {
 		fprintf(stderr, "gethostname failed: %s\n", strerror(errno));
 		return 1;
 	}
