@@ -199,6 +199,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "ForceHost") && cc->text) {
+		free(tabled_srv.ourhost);
+		tabled_srv.ourhost = cc->text;
+		cc->text = NULL;
+	}
+
 	else if (!strcmp(element_name, "TDB") && cc->text) {
 		if (stat(cc->text, &statb) < 0) {
 			syslog(LOG_ERR, "stat(2) on TDB '%s' failed: %s",

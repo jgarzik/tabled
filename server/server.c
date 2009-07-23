@@ -1555,7 +1555,11 @@ int main (int argc, char *argv[])
 	 * now we can parse the configuration, errors to syslog
 	 */
 	read_config();
-	tabled_srv.ourhost = get_hostname();
+	if (!tabled_srv.ourhost)
+		tabled_srv.ourhost = get_hostname();
+	else if (debugging)
+		syslog(LOG_INFO, "Forcing local hostname to %s",
+		       tabled_srv.ourhost);
 
 	/*
 	 * background outselves, write PID file ASAP
