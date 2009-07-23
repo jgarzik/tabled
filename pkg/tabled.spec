@@ -1,13 +1,13 @@
 Name:		tabled
 Version:	0.3
-Release:	0.5.g8102bcda%{?dist}
+Release:	0.6.gebb1144c%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 8102bcda428a9c2d9647d33f21ede6764a514c6e
+# pulled from upstream git, commit ebb1144ceefd7a936acafc79c6e274095bd0bb06
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
@@ -18,6 +18,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # private copies of infrastructure daemons.
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
 BuildRequires:	chunkd chunkd-devel cld cld-devel libcurl-devel
+BuildRequires:	procps
 
 # cld is broken on big-endian... embarrassing!!!
 # FIXME: remove this when cld is fixed
@@ -101,6 +102,10 @@ fi
 %{_includedir}/*
 
 %changelog
+* Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.6.gebb1144c
+- update to git commit ebb1144ceefd7a936acafc79c6e274095bd0bb06
+- BuildRequires: procps
+
 * Tue Jul 21 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.5.g8102bcda
 - rebuild for koji silliness
 
