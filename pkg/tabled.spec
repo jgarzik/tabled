@@ -1,6 +1,6 @@
 Name:		tabled
 Version:	0.3
-Release:	0.6.gebb1144c%{?dist}
+Release:	0.7.gebb1144c%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
@@ -102,6 +102,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Sun Jul 26 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.3-0.7.gebb1144c
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
+
 * Thu Jul 23 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.6.gebb1144c
 - update to git commit ebb1144ceefd7a936acafc79c6e274095bd0bb06
 - BuildRequires: procps
