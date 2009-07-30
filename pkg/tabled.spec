@@ -1,13 +1,13 @@
 Name:		tabled
 Version:	0.3
-Release:	0.7.gebb1144c%{?dist}
+Release:	0.8.g0b3ec75c%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit ebb1144ceefd7a936acafc79c6e274095bd0bb06
+# pulled from upstream git, commit 0b3ec75c239e231ee2af8252466ec4fd9da2bd7c
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
@@ -20,8 +20,8 @@ BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
 BuildRequires:	chunkd chunkd-devel cld cld-devel libcurl-devel
 BuildRequires:	procps
 
-# cld is broken on big-endian... embarrassing!!!
-# FIXME: remove this when cld is fixed
+# chunkd is broken on big-endian... embarrassing!!!
+# FIXME: remove this when chunkd is fixed
 ExcludeArch:	ppc ppc64
 
 %description
@@ -102,6 +102,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.8.g0b3ec75c
+- update to git commit 0b3ec75c239e231ee2af8252466ec4fd9da2bd7c
+
 * Sun Jul 26 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 0.3-0.7.gebb1144c
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
 
