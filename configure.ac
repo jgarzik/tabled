@@ -80,8 +80,10 @@ AC_CHECK_LIB(db-4.7, db_create, DB4_LIBS=-ldb-4.7,
 	AC_CHECK_LIB(db-4.6, db_create, DB4_LIBS=-ldb-4.6,
 	AC_CHECK_LIB(db-4.5, db_create, DB4_LIBS=-ldb-4.5,
 	AC_CHECK_LIB(db-4.4, db_create, DB4_LIBS=-ldb-4.4,
-	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3, exit 1)))))
-AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent, exit 1)
+	AC_CHECK_LIB(db-4.3, db_create, DB4_LIBS=-ldb-4.3,
+  [AC_MSG_ERROR([Missing required libdb 4.x])])))))
+AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
+  [AC_MSG_ERROR([Missing required libevent])])
 AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
 PKG_CHECK_MODULES(CHUNKDC, libchunkdc)
 PKG_CHECK_MODULES(CLDC, libcldc)
@@ -99,8 +101,10 @@ dnl autoconf output generation
 dnl --------------------------
 
 AM_PATH_GLIB_2_0(2.0.0)
-AM_PATH_XML2(2.6.0, , exit 1)
-LIBCURL_CHECK_CONFIG(, 7.10.1, , exit 1)
+AM_PATH_XML2(2.6.0, ,
+  [AC_MSG_ERROR([Missing required XML2 >= 2.6.0])])
+LIBCURL_CHECK_CONFIG(, 7.10.1, ,
+  [AC_MSG_ERROR([Missing required libcurl >= 7.10.1])])
 
 AC_SUBST(PCRE_LIBS)
 AC_SUBST(CRYPTO_LIBS)
