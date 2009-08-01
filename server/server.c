@@ -1251,7 +1251,8 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	}
 
 	/* pretty-print incoming cxn info */
-	getnameinfo((struct sockaddr *) &cli->addr, sizeof(struct sockaddr_in6),
+	memset(host, 0, sizeof(host));
+	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
 	syslog(LOG_INFO, "client %s connected", host);

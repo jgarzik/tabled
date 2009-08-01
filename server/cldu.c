@@ -11,8 +11,9 @@
 #include <unistd.h>
 #include <event.h>
 #include <netdb.h>
-#include <resolv.h>
 #include <arpa/nameser.h>
+#include <netinet/in.h>
+#include <resolv.h>		/* must follow in.h, nameser.h */
 #include <errno.h>
 #include <cldc.h>
 #include "tabled.h"

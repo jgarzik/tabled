@@ -4,7 +4,7 @@ killpid () {
 	pidfile=$1
 	kill $(cat $pidfile)
 
-	for ((n = 0; n < 10; n++))
+	for n in 0 1 2 3 4 5 6 7 8 9
 	do
 		if [ ! -f $pidfile ]
 		then

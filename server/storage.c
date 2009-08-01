@@ -24,11 +24,11 @@ static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 	struct sockaddr_in6 *a6;
 	unsigned short port;
 
-	if (stn->a.addr.sa_family == AF_INET) {
-		a4 = (struct sockaddr_in *) &stn->a.addr;
+	if (stn->addr_af == AF_INET) {
+		a4 = (struct sockaddr_in *) &stn->addr;
 		port = ntohs(a4->sin_port);
-	} else if (stn->a.addr.sa_family == AF_INET6) {
-		a6 = (struct sockaddr_in6 *) &stn->a.addr;
+	} else if (stn->addr_af == AF_INET6) {
+		a6 = &stn->addr;
 		port = ntohs(a6->sin6_port);
 	} else {
 		return -EINVAL;
@@ -337,8 +337,9 @@ void stor_init(void)
 	rc = stor_new_stc(stn, &stc);
 	if (rc < 0) {
 		if (rc == -EINVAL) {
-			if (getnameinfo(&stn->a.addr, stn->alen,
-					host, sizeof(host), port, sizeof(port),
+			if (getnameinfo((struct sockaddr *) &stn->addr,
+					stn->alen, host, sizeof(host),
+					port, sizeof(port),
 					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
 				syslog(LOG_INFO, "Error connecting to chunkd"
 				       " on host %s port %s",

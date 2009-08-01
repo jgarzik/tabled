@@ -83,10 +83,8 @@ struct compiled_pat {
 struct storage_node {
 	struct list_head	all_link;
 	unsigned		alen;
-	union {
-		struct sockaddr addr;
-		unsigned char x[ADDRSIZE];
-	} a;
+	int			addr_af;
+	struct sockaddr_in6	addr;
 	char *hostname;		/* Only used because stc_new is overly smart. */
 	int nchu;		/* number of open_chunk */
 };

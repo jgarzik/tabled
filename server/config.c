@@ -6,6 +6,7 @@
 #include "tabled-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <glib.h>
 #include <syslog.h>
 #include <string.h>
@@ -95,7 +96,8 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 		}
 		memset(sn, 0, sizeof(struct storage_node));
 
-		memcpy(&sn->a.addr, res->ai_addr, res->ai_addrlen);
+		memcpy(&sn->addr, res->ai_addr, res->ai_addrlen);
+		sn->addr_af = res->ai_family;
 		sn->alen = res->ai_addrlen;
 
 		if ((sn->hostname = strdup(hostname)) == NULL) {
@@ -107,7 +109,7 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 		if (debugging) {
 			char nhost[41];
 			char nport[6];
-			if (getnameinfo(&sn->a.addr, sn->alen,
+			if (getnameinfo((struct sockaddr *) &sn->addr, sn->alen,
 					nhost, sizeof(nhost),
 				        nport, sizeof(nport),
 					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
