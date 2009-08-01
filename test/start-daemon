@@ -17,11 +17,11 @@ then
 fi
 
 # May be different on Solaris... like /usr/libexec or such.
-cld -d data/cld -P cld.pid -p 18081
+cld -d data/cld -P cld.pid -p 18081 -E
 
 sleep 3
 
-chunkd -P chunkd.pid -f $top_srcdir/test/chunkd-test.conf
+chunkd -P chunkd.pid -f $top_srcdir/test/chunkd-test.conf -E
 
 sleep 3
 
