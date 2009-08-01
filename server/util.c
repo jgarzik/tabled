@@ -69,9 +69,9 @@ void strlist_free(GList *l)
 	g_list_free(l);
 }
 
-void syslogerr(const char *prefix)
+void applogerr(const char *prefix)
 {
-	syslog(LOG_ERR, "%s: %s", prefix, strerror(errno));
+	applog(LOG_ERR, "%s: %s", prefix, strerror(errno));
 }
 
 void strup(char *s)
@@ -97,7 +97,7 @@ int write_pid_file(const char *pid_fn)
 	fd = open(pid_fn, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	if (fd < 0) {
 		err = errno;
-		syslogerr(pid_fn);
+		applogerr(pid_fn);
 		return -err;
 	}
 
@@ -108,10 +108,10 @@ int write_pid_file(const char *pid_fn)
 	if (fcntl(fd, F_SETLK, &lock) != 0) {
 		err = errno;
 		if (err == EAGAIN) {
-			syslog(LOG_ERR, "Pid file %s is locked, not starting\n",
+			applog(LOG_ERR, "Pid file %s is locked, not starting\n",
 			       pid_fn);
 		} else {
-			syslogerr(pid_fn);
+			applogerr(pid_fn);
 		}
 		close(fd);
 		return -err;
@@ -124,7 +124,7 @@ int write_pid_file(const char *pid_fn)
 		ssize_t rc = write(fd, s, bytes);
 		if (rc < 0) {
 			err = errno;
-			syslogerr("pid data write failed");
+			applogerr("pid data write failed");
 			goto err_out;
 		}
 
@@ -135,7 +135,7 @@ int write_pid_file(const char *pid_fn)
 	/* make sure file data is written to disk */
 	if (fsync(fd) < 0) {
 		err = errno;
-		syslogerr("pid file sync/close failed");
+		applogerr("pid file sync/close failed");
 		goto err_out;
 	}
 
@@ -154,7 +154,7 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* get current flags */
 	old_flags = fcntl(fd, F_GETFL);
 	if (old_flags < 0) {
-		syslog(LOG_ERR, "%s F_GETFL: %s", prefix, strerror(errno));
+		applog(LOG_ERR, "%s F_GETFL: %s", prefix, strerror(errno));
 		return -errno;
 	}
 
@@ -165,7 +165,7 @@ int fsetflags(const char *prefix, int fd, int or_flags)
 	/* set new flags */
 	if (flags != old_flags)
 		if (fcntl(fd, F_SETFL, flags) < 0) {
-			syslog(LOG_ERR, "%s F_SETFL: %s", prefix, strerror(errno));
+			applog(LOG_ERR, "%s F_SETFL: %s", prefix, strerror(errno));
 			rc = -errno;
 		}
 
@@ -221,7 +221,7 @@ uint64_t objid_next(void)
 	/* write the counter */
 	rc = oids->put(oids, txn, &pkey, &pval, 0);
 	if (rc) {
-		syslog(LOG_INFO, "objid_next DB put error %d", rc);
+		applog(LOG_INFO, "objid_next DB put error %d", rc);
 		goto err_out_put;
 	}
 
@@ -234,7 +234,7 @@ uint64_t objid_next(void)
 err_out_put:
 	rc = txn->abort(txn);
 	if (rc)
-		syslog(LOG_INFO, "objid_new abort error %d", rc);
+		applog(LOG_INFO, "objid_new abort error %d", rc);
 err_out_begin:
 	return objcount;
 }
@@ -277,18 +277,18 @@ int objid_init(void)
 	if (rc == DB_NOTFOUND) {
 		objcount = 1;
 	} else if (rc) {
-		syslog(LOG_ERR, "objid_init get error %d", rc);
+		applog(LOG_ERR, "objid_init get error %d", rc);
 		txn->abort(txn);
 		return -1;
 	} else {
 		if (pval.size != sizeof(uint64_t)) {
-			syslog(LOG_ERR, "objid_init got size %d", pval.size);
+			applog(LOG_ERR, "objid_init got size %d", pval.size);
 			txn->abort(txn);
 			return -1;
 		}
 		objcount = GUINT64_FROM_LE(cntbuf);
 		if (debugging)
-			syslog(LOG_INFO, "objid_init initial %llX",
+			applog(LOG_INFO, "objid_init initial %llX",
 			       (unsigned long long) objcount);
 		objcount += OBJID_STEP;
 
@@ -316,7 +316,7 @@ int objid_init(void)
 	}
 
 	if (objcount & 0xff00000000000000) {
-		syslog(LOG_ERR, "Dangerous objid %llX\n",
+		applog(LOG_ERR, "Dangerous objid %llX\n",
 		       (unsigned long long) objcount);
 		return -1;
 	}

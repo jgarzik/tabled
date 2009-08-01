@@ -51,13 +51,18 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static void add_remote(char *name);
 
-/* The format comes with a trailing newline, but fortunately syslog strips it */
+/* The format comes with a trailing newline, but fortunately applog strips it */
 void cldu_p_log(const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsyslog(LOG_DEBUG, fmt, ap);
+
+	if (use_syslog)
+		vsyslog(LOG_DEBUG, fmt, ap);
+	else
+		vfprintf(stderr, fmt, ap);
+		
 	va_end(ap);
 }
 
@@ -131,13 +136,13 @@ static void cldu_event(int fd, short events, void *userdata)
 	int rc;
 
 	if (!sp->lib) {
-		syslog(LOG_WARNING, "Stray UDP event");
+		applog(LOG_WARNING, "Stray UDP event");
 		return;
 	}
 
 	rc = cldc_udp_receive_pkt(sp->lib);
 	if (rc) {
-		syslog(LOG_INFO, "cldc_udp_receive_pkt failed: %d", rc);
+		applog(LOG_INFO, "cldc_udp_receive_pkt failed: %d", rc);
 		/*
 		 * Reacting to ICMP messages is a bad idea, because
 		 *  - it makes us loop hard in case CLD is down, unless we
@@ -147,7 +152,7 @@ static void cldu_event(int fd, short events, void *userdata)
 #if 0
 		if (rc == -ECONNREFUSED) {	/* ICMP tells us */
 			int newactive;
-			/* P3 */ syslog(LOG_INFO, "Restarting session");
+			/* P3 */ applog(LOG_INFO, "Restarting session");
 			// evtimer_del(&sp->tm);
 			cldc_kill_sess(sp->lib->sess);
 			sp->lib->sess = NULL;
@@ -185,10 +190,10 @@ static void cldu_p_event(void *priv, struct cldc_session *csp,
 	if (what == CE_SESS_FAILED) {
 		sp->sess_open = false;
 		if (sp->lib->sess != csp)
-			syslog(LOG_ERR, "Stray session failed, sid " SIDFMT,
+			applog(LOG_ERR, "Stray session failed, sid " SIDFMT,
 			       SIDARG(csp->sid));
 		else
-			syslog(LOG_ERR, "Session failed, sid " SIDFMT,
+			applog(LOG_ERR, "Session failed, sid " SIDFMT,
 			       SIDARG(csp->sid));
 		// evtimer_del(&sp->tm);
 		sp->lib->sess = NULL;
@@ -198,10 +203,10 @@ static void cldu_p_event(void *priv, struct cldc_session *csp,
 		// evtimer_add(&sp->tm, &cldc_to_delay);
 	} else {
 		if (csp)
-			syslog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
+			applog(LOG_INFO, "cldc event 0x%x sid " SIDFMT,
 			       what, SIDARG(csp->sid));
 		else
-			syslog(LOG_INFO, "cldc event 0x%x no sid", what);
+			applog(LOG_INFO, "cldc event 0x%x no sid", what);
 	}
 }
 
@@ -233,20 +238,20 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	sp->actx = newactive;
 	hp = &sp->cldv[sp->actx];
 	if (!hp->known) {
-		syslog(LOG_ERR, "No CLD hosts");
+		applog(LOG_ERR, "No CLD hosts");
 		goto err_addr;
 	}
 
 	rc = cldc_udp_new(hp->host, hp->port, &sp->lib);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_udp_new(%s,%u) error: %d",
+		applog(LOG_ERR, "cldc_udp_new(%s,%u) error: %d",
 		       hp->host, hp->port, rc);
 		goto err_lib_new;
 	}
 	lib = sp->lib;
 
 	if (debugging)
-		syslog(LOG_INFO, "Selected CLD host %s port %u",
+		applog(LOG_INFO, "Selected CLD host %s port %u",
 		       hp->host, hp->port);
 
 	/*
@@ -257,7 +262,7 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	event_set(&sp->ev, sp->lib->fd, EV_READ | EV_PERSIST, cldu_event, sp);
 
 	if (event_add(&sp->ev, NULL) < 0) {
-		syslog(LOG_INFO, "Failed to add CLD event");
+		applog(LOG_INFO, "Failed to add CLD event");
 		goto err_event;
 	}
 
@@ -267,7 +272,7 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	rc = cldc_new_sess(&cld_ops, &copts, lib->addr, lib->addr_len,
 			   "tabled", "tabled", sp, &lib->sess);
 	if (rc) {
-		syslog(LOG_INFO,
+		applog(LOG_INFO,
 		       "Failed to start CLD session on host %s port %u",
 		       hp->host, hp->port);
 		goto err_sess;
@@ -294,12 +299,12 @@ static int cldu_new_sess(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_INFO, "New CLD session creation failed: %d", errc);
+		applog(LOG_INFO, "New CLD session creation failed: %d", errc);
 		return 0;
 	}
 
 	sp->sess_open = true;
-	syslog(LOG_INFO, "New CLD session created, sid " SIDFMT,
+	applog(LOG_INFO, "New CLD session created, sid " SIDFMT,
 	       SIDARG(sp->lib->sess->sid));
 
 	/*
@@ -312,8 +317,7 @@ static int cldu_new_sess(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		       COM_READ | COM_WRITE | COM_CREATE | COM_DIRECTORY,
 		       CE_MASTER_FAILOVER | CE_SESS_FAILED, &sp->cfh);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_open(%s) call error: %d\n",
-		       sp->cfname, rc);
+		applog(LOG_ERR, "cldc_open(%s) call error: %d", sp->cfname, rc);
 	}
 	return 0;
 }
@@ -325,20 +329,20 @@ static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD open(%s) failed: %d", sp->cfname, errc);
+		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->cfname, errc);
 		return 0;
 	}
 	if (sp->cfh == NULL) {
-		syslog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->cfname);
+		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->cfname);
 		return 0;
 	}
 	if (!sp->cfh->valid) {
-		syslog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->cfname);
+		applog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->cfname);
 		return 0;
 	}
 
 	if (debugging)
-		syslog(LOG_DEBUG, "CLD directory \"%s\" created", sp->cfname);
+		applog(LOG_DEBUG, "CLD directory \"%s\" created", sp->cfname);
 
 #if 0 /* Don't close the directory, we'll rescan later instead */
 	/*
@@ -349,7 +353,7 @@ static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	copts.private = sp;
 	rc = cldc_close(sp->cfh, &copts);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_close call error %d", rc);
+		applog(LOG_ERR, "cldc_close call error %d", rc);
 	}
 #endif
 
@@ -363,8 +367,7 @@ static int cldu_open_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		       COM_WRITE | COM_LOCK | COM_CREATE,
 		       CE_MASTER_FAILOVER | CE_SESS_FAILED, &sp->ffh);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_open(%s) call error: %d\n",
-		       sp->ffname, rc);
+		applog(LOG_ERR, "cldc_open(%s) call error: %d", sp->ffname, rc);
 	}
 	return 0;
 }
@@ -377,11 +380,11 @@ static int cldu_close_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD close(%s) failed: %d", sp->cfname, errc);
+		applog(LOG_ERR, "CLD close(%s) failed: %d", sp->cfname, errc);
 		return 0;
 	}
 
-/* P3 */ syslog(LOG_INFO, "CLD close success, opening %s", sp->ffname);
+/* P3 */ applog(LOG_INFO, "CLD close success, opening %s", sp->ffname);
 
 	/*
 	 * Then, create the membership file for us.
@@ -393,8 +396,7 @@ static int cldu_close_c_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		       COM_WRITE | COM_LOCK | COM_CREATE,
 		       CE_MASTER_FAILOVER | CE_SESS_FAILED, &sp->ffh);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_open(%s) call error: %d\n",
-		       sp->ffname, rc);
+		applog(LOG_ERR, "cldc_open(%s) call error: %d", sp->ffname, rc);
 	}
 	return 0;
 }
@@ -407,20 +409,20 @@ static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD open(%s) failed: %d", sp->ffname, errc);
+		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->ffname, errc);
 		return 0;
 	}
 	if (sp->ffh == NULL) {
-		syslog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->ffname);
+		applog(LOG_ERR, "CLD open(%s) failed: NULL fh", sp->ffname);
 		return 0;
 	}
 	if (!sp->ffh->valid) {
-		syslog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->ffname);
+		applog(LOG_ERR, "CLD open(%s) failed: invalid fh", sp->ffname);
 		return 0;
 	}
 
 	if (debugging)
-		syslog(LOG_DEBUG, "CLD file \"%s\" created", sp->ffname);
+		applog(LOG_DEBUG, "CLD file \"%s\" created", sp->ffname);
 
 	/*
 	 * Lock the file, in case two hosts got the same hostname.
@@ -430,7 +432,7 @@ static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	copts.private = sp;
 	rc = cldc_lock(sp->ffh, &copts, 0, false);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_lock call error %d", rc);
+		applog(LOG_ERR, "cldc_lock call error %d", rc);
 	}
 
 	return 0;
@@ -445,7 +447,7 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD lock(%s) failed: %d", sp->cfname, errc);
+		applog(LOG_ERR, "CLD lock(%s) failed: %d", sp->cfname, errc);
 		return 0;
 	}
 
@@ -454,7 +456,7 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	 */
 	len = snprintf(buf, sizeof(buf), "port: %u\n", tabled_srv.rep_port);
 	if (len >= sizeof(buf)) {
-		syslog(LOG_ERR,
+		applog(LOG_ERR,
 		       "internal error: overflow in cldu_lock_cb (%d)", len);
 		return 0;
 	}
@@ -464,8 +466,7 @@ static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	copts.private = sp;
 	rc = cldc_put(sp->ffh, &copts, buf, len);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_put(%s) call error: %d\n",
-		       sp->ffname, rc);
+		applog(LOG_ERR, "cldc_put(%s) call error: %d", sp->ffname, rc);
 	}
 
 	return 0;
@@ -478,7 +479,7 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD put(%s) failed: %d", sp->ffname, errc);
+		applog(LOG_ERR, "CLD put(%s) failed: %d", sp->ffname, errc);
 		return 0;
 	}
 
@@ -490,8 +491,7 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	copts.private = sp;
 	rc = cldc_get(sp->cfh, &copts, false);
 	if (rc) {
-		syslog(LOG_ERR, "cldc_get(%s) call error: %d\n",
-		       sp->cfname, rc);
+		applog(LOG_ERR, "cldc_get(%s) call error: %d", sp->cfname, rc);
 	}
 
 	return 0;
@@ -508,12 +508,12 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	char buf[65];
 
 	if (errc != CLE_OK) {
-		syslog(LOG_ERR, "CLD get(%s) failed: %d", sp->cfname, errc);
+		applog(LOG_ERR, "CLD get(%s) failed: %d", sp->cfname, errc);
 		return 0;
 	}
 
 	if (debugging)
-		syslog(LOG_DEBUG, "Known tabled nodes");
+		applog(LOG_DEBUG, "Known tabled nodes");
 
 	ptr = carg->u.get.buf;
 	dir_len = carg->u.get.size;
@@ -530,10 +530,10 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 
 		if (!strcmp(buf, tabled_srv.ourhost)) {
 			if (debugging)
-				syslog(LOG_DEBUG, " %s (ourselves)", buf);
+				applog(LOG_DEBUG, " %s (ourselves)", buf);
 		} else {
 			if (debugging)
-				syslog(LOG_DEBUG, " %s", buf);
+				applog(LOG_DEBUG, " %s", buf);
 			add_remote(buf);
 		}
 

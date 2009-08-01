@@ -45,21 +45,21 @@ static void cfg_elm_start (GMarkupParseContext *context,
 		if (!cc->in_listen) {
 			cc->in_listen = true;
 		} else {
-			syslog(LOG_ERR, "Nested Listen in configuration");
+			applog(LOG_ERR, "Nested Listen in configuration");
 		}
 	}
 	else if (!strcmp(element_name, "StorageNode")) {
 		if (!cc->in_storage) {
 			cc->in_storage = true;
 		} else {
-			syslog(LOG_ERR, "Nested StorageNode in configuration");
+			applog(LOG_ERR, "Nested StorageNode in configuration");
 		}
 	}
 	else if (!strcmp(element_name, "CLD")) {
 		if (!cc->in_cld) {
 			cc->in_cld = true;
 		} else {
-			syslog(LOG_ERR, "Nested CLD in configuration");
+			applog(LOG_ERR, "Nested CLD in configuration");
 		}
 	}
 }
@@ -77,7 +77,7 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 
 	rc = getaddrinfo(hostname, portstr, &hints, &res0);
 	if (rc) {
-		syslog(LOG_WARNING, "getaddrinfo(%s:%s) failed: %s",
+		applog(LOG_WARNING, "getaddrinfo(%s:%s) failed: %s",
 		       hostname, portstr, gai_strerror(rc));
 		return;
 	}
@@ -90,7 +90,7 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 			continue;
 
 		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
-			syslog(LOG_WARNING, "No core (%ld)",
+			applog(LOG_WARNING, "No core (%ld)",
 			       (long) sizeof(struct storage_node));
 			break;
 		}
@@ -101,7 +101,7 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 		sn->alen = res->ai_addrlen;
 
 		if ((sn->hostname = strdup(hostname)) == NULL) {
-			syslog(LOG_WARNING, "No core");
+			applog(LOG_WARNING, "No core");
 			free(sn);
 			break;
 		}
@@ -113,10 +113,10 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 					nhost, sizeof(nhost),
 				        nport, sizeof(nport),
 					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				syslog(LOG_INFO, "Found Chunk host %s port %s",
+				applog(LOG_INFO, "Found Chunk host %s port %s",
 				       nhost, nport);
 			} else {
-				syslog(LOG_INFO, "Found Chunk host");
+				applog(LOG_INFO, "Found Chunk host");
 			}
 		}
 
@@ -130,7 +130,7 @@ static void cfg_add_storage(const char *hostname, const char *portstr)
 static void cfg_elm_end_storage(struct config_context *cc)
 {
 	if (cc->text) {
-		syslog(LOG_WARNING, "Extra text in StorageNode element: \"%s\"",
+		applog(LOG_WARNING, "Extra text in StorageNode element: \"%s\"",
 		       cc->text);
 		free(cc->text);
 		cc->text = NULL;
@@ -138,11 +138,11 @@ static void cfg_elm_end_storage(struct config_context *cc)
 	}
 
 	if (!cc->stor_host) {
-		syslog(LOG_WARNING, "No host for StorageNode element");
+		applog(LOG_WARNING, "No host for StorageNode element");
 		goto end;
 	}
 	if (!cc->stor_port) {
-		syslog(LOG_WARNING, "No port for StorageNode element");
+		applog(LOG_WARNING, "No port for StorageNode element");
 		goto end;
 	}
 
@@ -158,7 +158,7 @@ end:
 static void cfg_elm_end_cld(struct config_context *cc)
 {
 	if (cc->text) {
-		syslog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
+		applog(LOG_WARNING, "Extra text in CLD element: \"%s\"",
 		       cc->text);
 		free(cc->text);
 		cc->text = NULL;
@@ -166,11 +166,11 @@ static void cfg_elm_end_cld(struct config_context *cc)
 	}
 
 	if (!cc->cld_host) {
-		syslog(LOG_WARNING, "No host for CLD element");
+		applog(LOG_WARNING, "No host for CLD element");
 		goto end;
 	}
 	if (!cc->cld_port) {
-		syslog(LOG_WARNING, "No port for CLD element");
+		applog(LOG_WARNING, "No port for CLD element");
 		goto end;
 	}
 
@@ -209,13 +209,13 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "TDB") && cc->text) {
 		if (stat(cc->text, &statb) < 0) {
-			syslog(LOG_ERR, "stat(2) on TDB '%s' failed: %s",
+			applog(LOG_ERR, "stat(2) on TDB '%s' failed: %s",
 			       cc->text, strerror(errno));
 			return;
 		}
 
 		if (!S_ISDIR(statb.st_mode)) {
-			syslog(LOG_ERR, "TDB '%s' is not a directory",
+			applog(LOG_ERR, "TDB '%s' is not a directory",
 			       cc->text);
 			return;
 		}
@@ -228,7 +228,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "TDBRepPort") && cc->text) {
 		n = strtol(cc->text, NULL, 10);
 		if (n <= 0 || n >= 65536) {
-			syslog(LOG_WARNING,
+			applog(LOG_WARNING,
 			       "TDBRepPort '%s' invalid, ignoring", cc->text);
 			free(cc->text);
 			cc->text = NULL;
@@ -243,7 +243,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->in_listen = false;
 
 		if (!cc->tmp_listen.port) {
-			syslog(LOG_WARNING, "TCP port not specified in Listen");
+			applog(LOG_WARNING, "TCP port not specified in Listen");
 			free(tabled_srv.port);
 			tabled_srv.port = NULL;
 			return;
@@ -271,7 +271,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "Port")) {
 
 		if (!cc->text) {
-			syslog(LOG_WARNING, "Port element empty");
+			applog(LOG_WARNING, "Port element empty");
 			return;
 		}
 
@@ -281,7 +281,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 				free(cc->tmp_listen.port);
 				cc->tmp_listen.port = cc->text;
 			} else {
-				syslog(LOG_WARNING,
+				applog(LOG_WARNING,
 				       "Port '%s' invalid, ignoring", cc->text);
 				free(cc->text);
 			}
@@ -292,7 +292,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 				free(cc->stor_port);
 				cc->stor_port = cc->text;
 			} else {
-				syslog(LOG_WARNING,
+				applog(LOG_WARNING,
 				       "Port '%s' invalid, ignoring", cc->text);
 				free(cc->text);
 			}
@@ -302,12 +302,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			if (n > 0 && n < 65536)
 				cc->cld_port = n;
 			else
-				syslog(LOG_WARNING,
+				applog(LOG_WARNING,
 				       "Port '%s' invalid, ignoring", cc->text);
 			free(cc->text);
 			cc->text = NULL;
 		} else {
-			syslog(LOG_WARNING,
+			applog(LOG_WARNING,
 			       "Port element not in Listen or StorageNode");
 			return;
 		}
@@ -316,7 +316,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 	else if (!strcmp(element_name, "Host")) {
 		if (!cc->text) {
-			syslog(LOG_WARNING, "Host element empty");
+			applog(LOG_WARNING, "Host element empty");
 			return;
 		}
 
@@ -329,7 +329,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			cc->cld_host = cc->text;
 			cc->text = NULL;
 		} else {
-			syslog(LOG_WARNING, "Host element not in StorageNode");
+			applog(LOG_WARNING, "Host element not in StorageNode");
 		}
 	}
 
@@ -364,7 +364,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 #endif
 
 	else {
-		syslog(LOG_WARNING, "Unknown element \"%s\"", element_name);
+		applog(LOG_WARNING, "Unknown element \"%s\"", element_name);
 	}
 
 }
@@ -416,19 +416,19 @@ void read_config(void)
 	tabled_srv.rep_port = 8083;
 
 	if (!g_file_get_contents(tabled_srv.config, &text, &len, NULL)) {
-		syslog(LOG_ERR, "failed to read config file %s",
+		applog(LOG_ERR, "failed to read config file %s",
 			tabled_srv.config);
 		exit(1);
 	}
 
 	parser = g_markup_parse_context_new(&cfg_parse_ops, 0, &ctx, NULL);
 	if (!parser) {
-		syslog(LOG_ERR, "g_markup_parse_context_new failed");
+		applog(LOG_ERR, "g_markup_parse_context_new failed");
 		exit(1);
 	}
 
 	if (!g_markup_parse_context_parse(parser, text, len, NULL)) {
-		syslog(LOG_ERR, "config file parse failure");
+		applog(LOG_ERR, "config file parse failure");
 		exit(1);
 	}
 
@@ -437,19 +437,19 @@ void read_config(void)
 	free(text);
 
 	if (!tabled_srv.tdb_dir) {
-		syslog(LOG_ERR, "no directory TDB defined in config file");
+		applog(LOG_ERR, "no directory TDB defined in config file");
 		exit(1);
 	}
 
 	if (!tabled_srv.pid_file) {
 		if (!(tabled_srv.pid_file = strdup("/var/run/tabled.pid"))) {
-			syslog(LOG_ERR, "no core");
+			applog(LOG_ERR, "no core");
 			exit(1);
 		}
 	}
 
 	if (debugging)
-		syslog(LOG_INFO, "TDB %s PID %s port %s",
+		applog(LOG_INFO, "TDB %s PID %s port %s",
 		       tabled_srv.tdb_dir,
 		       tabled_srv.pid_file, tabled_srv.port);
 }

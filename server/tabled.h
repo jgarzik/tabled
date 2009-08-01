@@ -268,7 +268,7 @@ extern void req_free(struct http_req *req);
 extern int req_hdr_push(struct http_req *req, char *key, char *val);
 extern char *req_hdr(struct http_req *req, const char *key);
 extern GHashTable *req_query(struct http_req *req);
-extern void syslogerr(const char *prefix);
+extern void applogerr(const char *prefix);
 extern void strup(char *s);
 extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
@@ -282,6 +282,7 @@ int objid_init(void);
 
 /* server.c */
 extern int debugging;
+extern bool use_syslog;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);
@@ -294,6 +295,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 			bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
+extern void applog(int prio, const char *fmt, ...);
 
 /* config.c */
 void read_config(void);

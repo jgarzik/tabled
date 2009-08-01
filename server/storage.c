@@ -65,7 +65,7 @@ int stor_open(struct open_chunk *cep, struct storage_node *stn)
 
 	if ((rc = stor_new_stc(stn, &cep->stc)) < 0) {
 		if (debugging)
-			syslog(LOG_INFO, "Failed to open Chunk (%d)\n", rc);
+			applog(LOG_INFO, "Failed to open Chunk (%d)\n", rc);
 		return rc;
 	}
 
@@ -88,14 +88,14 @@ int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size)
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
 	if (!stc_put_start(cep->stc, stckey, size, &cep->wfd)) {
 		if (debugging)
-			syslog(LOG_INFO, "stor put %s new for %lld error",
+			applog(LOG_INFO, "stor put %s new for %lld error",
 			       stckey, (long long) size);
 		return -EIO;
 	}
 	cep->wtogo = size;
 	cep->wkey = key;
 	if (debugging)
-		syslog(LOG_INFO, "stor put %s new for %lld\n",
+		applog(LOG_INFO, "stor put %s new for %lld\n",
 		       stckey, (long long) size);
 
 	return 0;
@@ -114,7 +114,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 		return -EINVAL;
 
 	if (cep->rsize && cep->roff != cep->rsize) {
-		syslog(LOG_ERR, "Unfinished Get (%ld,%ld)",
+		applog(LOG_ERR, "Unfinished Get (%ld,%ld)",
 		       (long)cep->roff, (long)cep->rsize);
 		cep->rsize = 0;
 	}
@@ -122,7 +122,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
 	if (!stc_get_start(cep->stc, stckey, &cep->rfd, &size)) {
 		if (debugging)
-			syslog(LOG_INFO, "stor put %s error", stckey);
+			applog(LOG_INFO, "stor put %s error", stckey);
 		return -EIO;
 	}
 	*psize = size;
@@ -132,7 +132,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	event_set(&cep->revt, cep->rfd, EV_READ, stor_read_event, cep);
 
 	if (debugging)
-		syslog(LOG_INFO, "stor get %s size %lld",
+		applog(LOG_INFO, "stor get %s size %lld",
 		       stckey, (long long) size);
 
 	return 0;
@@ -174,7 +174,7 @@ void stor_abort(struct open_chunk *cep)
 		return;
 
 	if (debugging)
-		syslog(LOG_INFO, "stor aborting\n");
+		applog(LOG_INFO, "stor aborting\n");
 
 	stc_free(cep->stc);
 	cep->stc = NULL;
@@ -185,7 +185,7 @@ void stor_abort(struct open_chunk *cep)
 		cep->node = NULL;
 
 		if (debugging)
-			syslog(LOG_INFO, "Failed to reopen Chunk (%d)\n", rc);
+			applog(LOG_INFO, "Failed to reopen Chunk (%d)\n", rc);
 		return;
 	}
 
@@ -205,7 +205,7 @@ void stor_abort(struct open_chunk *cep)
 ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 {
 	if (len > cep->wtogo) {
-		syslog(LOG_ERR, "Put size %ld remaining %ld",
+		applog(LOG_ERR, "Put size %ld remaining %ld",
 		       (long) len, (long) cep->wtogo);
 		if (cep->wtogo == 0)
 			return -EIO;	/* will spin otherwise, better error */
@@ -270,7 +270,7 @@ ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t req_len)
 void stor_get_enable(struct open_chunk *cep)
 {
 	if (!cep->stc) {	/* never happens */
-		syslog(LOG_ERR, "Unopened chunk in stor_get_enable");
+		applog(LOG_ERR, "Unopened chunk in stor_get_enable");
 		return;
 	}
 
@@ -328,7 +328,7 @@ void stor_init(void)
 		/*
 		 * Maybe we should wait until more of them come online?
 		 */
-		syslog(LOG_ERR, "No chunkd nodes, impossible to continue");
+		applog(LOG_ERR, "No chunkd nodes, impossible to continue");
 		exit(1);
 	}
 	stn = list_entry(tabled_srv.all_stor.next,
@@ -341,15 +341,15 @@ void stor_init(void)
 					stn->alen, host, sizeof(host),
 					port, sizeof(port),
 					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				syslog(LOG_INFO, "Error connecting to chunkd"
+				applog(LOG_INFO, "Error connecting to chunkd"
 				       " on host %s port %s",
 				       host, port);
 			} else {
-				syslog(LOG_INFO, "Error connecting to chunkd");
+				applog(LOG_INFO, "Error connecting to chunkd");
 			}
 			exit(1);
 		}
-		syslog(LOG_INFO, "Error connecting to chunkd, retrying");
+		applog(LOG_INFO, "Error connecting to chunkd, retrying");
 
 		/*
 		 * Logged the condition, now start looping silently.

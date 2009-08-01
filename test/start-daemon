@@ -25,7 +25,7 @@ chunkd -P chunkd.pid -f $top_srcdir/test/chunkd-test.conf
 
 sleep 3
 
-../server/tabled -P tabled.pid -C $top_srcdir/test/tabled-test.conf
+../server/tabled -P tabled.pid -C $top_srcdir/test/tabled-test.conf -E
 
 sleep 3
 

@@ -205,7 +205,7 @@ bool object_del(struct client *cli, const char *user,
 	}
 
 	if (object_unlink(&obje) < 0)
-		syslog(LOG_ERR, "object data(%llX) unlink failed",
+		applog(LOG_ERR, "object data(%llX) unlink failed",
 		       (unsigned long long) cli->in_objid);
 	if (asprintf(&hdr,
 "HTTP/%d.%d 204 x\r\n"
@@ -315,17 +315,17 @@ static bool object_put_end(struct client *cli)
 		cli->state = evt_dispose;
 
 	if (!stor_put_end(&cli->out_ce)) {
-		syslog(LOG_ERR, "Chunk sync failed");
+		applog(LOG_ERR, "Chunk sync failed");
 		goto err_out;
 	}
 
 	if (debugging) {
 		/* FIXME how do we test for inline objects here? */
 		if (!stor_obj_test(&cli->out_ce, cli->out_objid))
-			syslog(LOG_ERR, "Stat (%llX) failed",
+			applog(LOG_ERR, "Stat (%llX) failed",
 			       (unsigned long long) cli->out_objid);
 		else
-			syslog(LOG_DEBUG, "STORED %llX, size -",
+			applog(LOG_DEBUG, "STORED %llX, size -",
 			       (unsigned long long) cli->out_objid);
 	}
 
@@ -454,7 +454,7 @@ static bool object_put_end(struct client *cli)
 	 * we can remove the old object (overwritten) data.
 	 */
 	if (delobj && object_unlink(&oldobj) < 0) {
-		syslog(LOG_ERR, "object data(%llX) orphaned",
+		applog(LOG_ERR, "object data(%llX) orphaned",
 		       (unsigned long long) oldobj.d.avec[0].oid);
 	}
 
@@ -478,7 +478,7 @@ static bool object_put_end(struct client *cli)
 		     md5,
 		     time2str(timestr, time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
-		syslog(LOG_ERR, "OOM in object_put_end");
+		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
 	}
 
@@ -515,10 +515,10 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 
 		cli_out_end(cli);
 		if (avail < 0)
-			syslog(LOG_ERR, "object read(2) error: %s",
+			applog(LOG_ERR, "object read(2) error: %s",
 				strerror(errno));
 		else
-			syslog(LOG_ERR, "object read(2) unexpected EOF");
+			applog(LOG_ERR, "object read(2) unexpected EOF");
 		return cli_err(cli, InternalError);
 	}
 
@@ -526,7 +526,7 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 		bytes = stor_put_buf(&cli->out_ce, p, avail);
 		if (bytes < 0) {
 			cli_out_end(cli);
-			syslog(LOG_ERR, "write(2) error in HTTP data-in: %s",
+			applog(LOG_ERR, "write(2) error in HTTP data-in: %s",
 				strerror(errno));
 			return cli_err(cli, InternalError);
 		}
@@ -559,7 +559,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 
 	/* FIXME picking the first node until the redundancy is implemented */
 	if (list_empty(&tabled_srv.all_stor)) {
-		syslog(LOG_ERR, "No chunk nodes");
+		applog(LOG_ERR, "No chunk nodes");
 		return cli_err(cli, InternalError);
 	}
 	stnode = list_entry(tabled_srv.all_stor.next,
@@ -567,13 +567,13 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 
 	rc = stor_open(&cli->out_ce, stnode);
 	if (rc != 0) {
-		syslog(LOG_WARNING, "Cannot open chunk (%d)", rc);
+		applog(LOG_WARNING, "Cannot open chunk (%d)", rc);
 		return cli_err(cli, InternalError);
 	}
 
 	rc = stor_put_start(&cli->out_ce, objid, content_len);
 	if (rc != 0) {
-		syslog(LOG_WARNING, "Cannot start putting for %llX (%d)",
+		applog(LOG_WARNING, "Cannot start putting for %llX (%d)",
 		       (unsigned long long) objid, rc);
 		return cli_err(cli, InternalError);
 	}
@@ -607,7 +607,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 			bytes = stor_put_buf(&cli->out_ce, cli->req_ptr, avail);
 			if (bytes < 0) {
 				cli_out_end(cli);
-				syslog(LOG_ERR, "write(2) error in object_put: %s",
+				applog(LOG_ERR, "write(2) error in object_put: %s",
 					strerror(errno));
 				return cli_err(cli, InternalError);
 			}
@@ -703,7 +703,7 @@ static bool object_put_acls(struct client *cli, const char *user,
 		     cli->req.minor,
 		     time2str(timestr, time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
-		syslog(LOG_ERR, "OOM in object_put_end");
+		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
 	}
 
@@ -775,7 +775,7 @@ static bool object_get_poke(struct client *cli)
 	bytes = stor_get_buf(&cli->in_ce, buf,
 			     MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%llX) failed",
+		applog(LOG_ERR, "read obj(%llX) failed",
 		       (unsigned long long) cli->in_objid);
 		goto err_out;
 	}
@@ -932,14 +932,14 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE)
 {
  /* FIXME: Not implemented yet */
- /* P3 */ syslog(LOG_ERR, "Inline object %s", key);
+ /* P3 */ applog(LOG_ERR, "Inline object %s", key);
 		goto err_out_str;
 }
 
 	cli->in_objid = obj->d.avec[0].oid;
 
 	if (list_empty(&tabled_srv.all_stor)) {
-		syslog(LOG_ERR, "No chunk nodes");
+		applog(LOG_ERR, "No chunk nodes");
 		goto err_out_str;
 	}
 	stnode = list_entry(tabled_srv.all_stor.next,
@@ -947,14 +947,14 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 
 	rc = stor_open(&cli->in_ce, stnode);
 	if (rc < 0) {
-		syslog(LOG_WARNING, "Cannot open chunk (%d)", rc);
+		applog(LOG_WARNING, "Cannot open chunk (%d)", rc);
 		goto err_out_str;
 	}
 
 	rc = stor_open_read(&cli->in_ce, object_get_event, cli->in_objid,
 			    &objsize);
 	if (rc < 0) {
-		syslog(LOG_ERR, "open oid %llX failed (%d)",
+		applog(LOG_ERR, "open oid %llX failed (%d)",
 		       (unsigned long long) cli->in_objid, rc);
 		goto err_out_str;
 	}
@@ -1031,7 +1031,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 
 	bytes = stor_get_buf(&cli->in_ce, buf, MIN(cli->in_len, sizeof(buf)));
 	if (bytes < 0) {
-		syslog(LOG_ERR, "read obj(%llX) failed",
+		applog(LOG_ERR, "read obj(%llX) failed",
 		       (unsigned long long) cli->in_objid);
 		goto err_out_in_end;
 	}

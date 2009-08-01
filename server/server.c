@@ -34,6 +34,7 @@
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <stdbool.h>
+#include <stdarg.h>
 #include <syslog.h>
 #include <argp.h>
 #include <errno.h>
@@ -70,6 +71,8 @@ static struct argp_option options[] = {
 	  "Configuration file" },
 	{ "debug", 'D', NULL, 0,
 	  "Enable debug output" },
+	{ "stderr", 'E', NULL, 0,
+	  "Switch the log to standard error" },
 	{ "pid", 'P', "FILE", 0,
 	  "Write daemon process id to FILE" },
 	{ "foreground", 'F', NULL, 0,
@@ -88,6 +91,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
+bool use_syslog = true;
 int debugging = 0;
 
 struct server tabled_srv = {
@@ -181,6 +185,9 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	case 'D':
 		debugging = 1;
 		break;
+	case 'E':
+		use_syslog = false;
+		break;
 	case 'F':
 		tabled_srv.flags |= SFL_FOREGROUND;
 		break;
@@ -199,6 +206,27 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+void applog(int prio, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	if (use_syslog) {
+		vsyslog(prio, fmt, ap);
+	} else {
+		char *f;
+		int len;
+		int pid;
+
+		pid = getpid() & 0xFFFFFFFF;
+		len = sizeof(PROGRAM_NAME "[0123456789]: ") + strlen(fmt) + 2;
+		f = alloca(len);
+		sprintf(f, PROGRAM_NAME "[%u]: %s\n", pid, fmt);
+		vfprintf(stderr, f, ap);	/* atomic write to stderr */
+	}
+	va_end(ap);
+}
+
 /*
  * Find out own hostname.
  * This is needed for:
@@ -214,13 +242,13 @@ static char *get_hostname(void)
 	char *ret;
 
 	if (gethostname(hostb, hostsz-1) < 0) {
-		syslog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
+		applog(LOG_ERR, "get_hostname: gethostname error (%d): %s",
 		       errno, strerror(errno));
 		exit(1);
 	}
 	hostb[hostsz-1] = 0;
 	if ((ret = strdup(hostb)) == NULL) {
-		syslog(LOG_ERR, "get_hostname: no core (%ld)",
+		applog(LOG_ERR, "get_hostname: no core (%ld)",
 		       (long)strlen(hostb));
 		exit(1);
 	}
@@ -304,7 +332,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 		pass = strdup("");
 
 		if (debugging)
-			syslog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
+			applog(LOG_INFO, "id %s lookup fail (%d)", user, rc);
 		if (rc != DB_NOTFOUND) {
 			char s[64];
 
@@ -345,7 +373,7 @@ static void stats_signal(int signal)
 }
 
 #define X(stat) \
-	syslog(LOG_INFO, "STAT %s %lu", #stat, tabled_srv.stats.stat)
+	applog(LOG_INFO, "STAT %s %lu", #stat, tabled_srv.stats.stat)
 
 static void stats_dump(void)
 {
@@ -353,7 +381,7 @@ static void stats_dump(void)
 	X(event);
 	X(tcp_accept);
 	X(opt_write);
-	syslog(LOG_INFO, "State: CLD %s TDB %s",
+	applog(LOG_INFO, "State: CLD %s TDB %s",
 	    state_name_cld[tabled_srv.state_cld],
 	    state_name_tdb[tabled_srv.state_tdb]);
 }
@@ -388,14 +416,14 @@ static void cli_free(struct client *cli)
 	/* clean up network socket */
 	if (cli->fd >= 0) {
 		if (event_del(&cli->ev) < 0)
-			syslog(LOG_WARNING, "TCP client event_del");
+			applog(LOG_WARNING, "TCP client event_del");
 		close(cli->fd);
 	}
 
 	req_free(&cli->req);
 
 	if (debugging)
-		syslog(LOG_INFO, "client %s ended", cli->addr_host);
+		applog(LOG_INFO, "client %s ended", cli->addr_host);
 
 	free(cli);
 }
@@ -407,7 +435,7 @@ static struct client *cli_alloc(void)
 	/* alloc and init client info */
 	cli = calloc(1, sizeof(*cli));
 	if (!cli) {
-		syslog(LOG_ERR, "out of memory");
+		applog(LOG_ERR, "out of memory");
 		return NULL;
 	}
 
@@ -518,7 +546,7 @@ do_write:
 	if (list_empty(&cli->write_q)) {
 		cli->writing = false;
 		if (event_del(&cli->write_ev) < 0) {
-			syslog(LOG_WARNING, "cli_writable event_del");
+			applog(LOG_WARNING, "cli_writable event_del");
 			cli->state = evt_dispose;
 		}
 	}
@@ -544,7 +572,7 @@ bool cli_write_start(struct client *cli)
 	}
 
 	if (event_add(&cli->write_ev, NULL) < 0) {
-		syslog(LOG_WARNING, "cli_write event_add");
+		applog(LOG_WARNING, "cli_write event_add");
 		return true;		/* loop, not poll */
 	}
 
@@ -645,7 +673,7 @@ bool cli_err(struct client *cli, enum errcode code)
 	int rc;
 	char timestr[50], *hdr = NULL, *content = NULL;
 
-	syslog(LOG_INFO, "client %s error %s",
+	applog(LOG_INFO, "client %s error %s",
 	       cli->addr_host, err_info[code].code);
 
 	content = g_markup_printf_escaped(
@@ -824,7 +852,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	key = pathtokey(path);
 
 	if (debugging)
-		syslog(LOG_INFO, "%s: method %s, path '%s', bucket '%s'",
+		applog(LOG_INFO, "%s: method %s, path '%s', bucket '%s'",
 		       cli->addr_host, method, path, bucket);
 
 	if (auth) {
@@ -923,7 +951,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 	else {
 		if (debugging)
-			syslog(LOG_INFO, "%s bucket %s through (auth %s)",
+			applog(LOG_INFO, "%s bucket %s through (auth %s)",
 			   method, bucket, auth);
 		rcb = cli_err(cli, InvalidURI);
 	}
@@ -1225,7 +1253,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	/* receive TCP connection from kernel */
 	cli->fd = accept(sock->fd, (struct sockaddr *) &cli->addr, &addrlen);
 	if (cli->fd < 0) {
-		syslogerr("tcp accept");
+		applogerr("tcp accept");
 		goto err_out;
 	}
 
@@ -1241,12 +1269,12 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 
 	/* disable delay of small output packets */
 	if (setsockopt(cli->fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on)) < 0)
-		syslog(LOG_WARNING, "TCP_NODELAY failed: %s",
+		applog(LOG_WARNING, "TCP_NODELAY failed: %s",
 		       strerror(errno));
 
 	/* add to poll watchlist */
 	if (event_add(&cli->ev, NULL) < 0) {
-		syslog(LOG_WARNING, "tcp client event_add");
+		applog(LOG_WARNING, "tcp client event_add");
 		goto err_out_fd;
 	}
 
@@ -1255,7 +1283,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	getnameinfo((struct sockaddr *) &cli->addr, addrlen,
 		    host, sizeof(host), NULL, 0, NI_NUMERICHOST);
 	host[sizeof(host) - 1] = 0;
-	syslog(LOG_INFO, "client %s connected", host);
+	applog(LOG_INFO, "client %s connected", host);
 
 	strcpy(cli->addr_host, host);
 
@@ -1272,7 +1300,7 @@ static void add_chkpt_timer(void)
 	struct timeval tv = { TABLED_CHKPT_SEC, 0 };
 
 	if (evtimer_add(&tabled_srv.chkpt_timer, &tv) < 0)
-		syslog(LOG_WARNING, "unable to add checkpoint timer");
+		applog(LOG_WARNING, "unable to add checkpoint timer");
 }
 
 static void tdb_checkpoint(int fd, short events, void *userdata)
@@ -1281,7 +1309,7 @@ static void tdb_checkpoint(int fd, short events, void *userdata)
 	int rc;
 
 	if (debugging)
-		syslog(LOG_INFO, "db4 checkpoint");
+		applog(LOG_INFO, "db4 checkpoint");
 
 	/* flush logs to db, if log files >= 1MB */
 	rc = dbenv->txn_checkpoint(dbenv, 1024, 0, 0);
@@ -1319,14 +1347,14 @@ static void tdb_state_cb(enum db_event event)
 			else
 				tabled_srv.state_tdb_new = ST_TDB_SLAVE;
 			if (debugging) {
-				syslog(LOG_DEBUG, "TDB state > %s",
+				applog(LOG_DEBUG, "TDB state > %s",
 				       state_name_tdb[tabled_srv.state_tdb_new]);
 			}
 			event_loopbreak();
 		}
 		break;
 	default:
-		syslog(LOG_WARNING, "API confusion with TDB, event 0x%x", event);
+		applog(LOG_WARNING, "API confusion with TDB, event 0x%x", event);
 		tabled_srv.state_tdb = ST_TDB_OPEN;  /* wrong, stub for now */
 		tabled_srv.state_tdb_new = ST_TDB_INIT;
 	}
@@ -1337,7 +1365,7 @@ static void cld_state_cb(enum st_cld newstate)
 	unsigned int env_flags;
 
 	if (debugging) {
-		syslog(LOG_DEBUG, "CLD state %s > %s",
+		applog(LOG_DEBUG, "CLD state %s > %s",
 		       state_name_cld[tabled_srv.state_cld],
 		       state_name_cld[newstate]);
 	}
@@ -1353,7 +1381,7 @@ static void cld_state_cb(enum st_cld newstate)
 				     tabled_srv.ourhost, tabled_srv.rep_port,
 				     tdb_state_cb)) {
 				tabled_srv.state_tdb = ST_TDB_INIT;
-				syslog(LOG_ERR, "Failed to open TDB, limping");
+				applog(LOG_ERR, "Failed to open TDB, limping");
 			}
 		}
 		/* FIXME re-poke in case of TDB_MASTER, slave list may change */
@@ -1373,7 +1401,7 @@ static int net_open(void)
 
 	rc = getaddrinfo(NULL, tabled_srv.port, &hints, &res0);
 	if (rc) {
-		syslog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
+		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
 		       tabled_srv.port, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
@@ -1404,20 +1432,20 @@ static int net_open(void)
 
 		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 		if (fd < 0) {
-			syslogerr("tcp socket");
+			applogerr("tcp socket");
 			return -errno;
 		}
 
 		on = 1;
 		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on,
 			       sizeof(on)) < 0) {
-			syslogerr("setsockopt(SO_REUSEADDR)");
+			applogerr("setsockopt(SO_REUSEADDR)");
 			rc = -errno;
 			goto err_out;
 		}
 
 		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
-			syslogerr("tcp bind");
+			applogerr("tcp bind");
 			rc = -errno;
 			goto err_out;
 		}
@@ -1462,13 +1490,13 @@ static void net_listen(void)
 		struct server_socket *sock = tmp->data;
 
 		if (listen(sock->fd, 100) < 0) {
-			syslog(LOG_WARNING, "tcp socket listen: %s",
+			applog(LOG_WARNING, "tcp socket listen: %s",
 			       strerror(errno));
 			continue;
 		}
 
 		if (event_add(&sock->ev, NULL) < 0) {
-			syslog(LOG_WARNING, "tcp socket event_add");
+			applog(LOG_WARNING, "tcp socket event_add");
 			continue;
 		}
 	}
@@ -1546,28 +1574,29 @@ int main (int argc, char *argv[])
 	}
 
 	/*
-	 * open syslog (currently does not depend on command line, but still)
+	 * open applog (currently does not depend on command line, but still)
 	 */
-	openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
+	if (use_syslog)
+		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 	if (debugging)
-		syslog(LOG_INFO, "Verbose debug output enabled");
+		applog(LOG_INFO, "Verbose debug output enabled");
 
 	/*
-	 * now we can parse the configuration, errors to syslog
+	 * now we can parse the configuration, errors to applog
 	 */
 	read_config();
 	if (!tabled_srv.ourhost)
 		tabled_srv.ourhost = get_hostname();
 	else if (debugging)
-		syslog(LOG_INFO, "Forcing local hostname to %s",
+		applog(LOG_INFO, "Forcing local hostname to %s",
 		       tabled_srv.ourhost);
 
 	/*
 	 * background outselves, write PID file ASAP
 	 */
 
-	if ((!(tabled_srv.flags & SFL_FOREGROUND)) && (daemon(1, 0) < 0)) {
-		syslogerr("daemon");
+	if ((!(tabled_srv.flags & SFL_FOREGROUND)) && (daemon(1, !use_syslog) < 0)) {
+		applogerr("daemon");
 		goto err_out;
 	}
 
@@ -1600,7 +1629,7 @@ int main (int argc, char *argv[])
 		goto err_cld_session;
 	}
 
-	syslog(LOG_INFO, "initialized (%s)",
+	applog(LOG_INFO, "initialized (%s)",
 	   (tabled_srv.flags & SFL_FOREGROUND)? "fg": "bg");
 
 	while (server_running) {
@@ -1618,7 +1647,7 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	syslog(LOG_INFO, "shutting down");
+	applog(LOG_INFO, "shutting down");
 
 	cld_end();
 
