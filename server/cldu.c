@@ -598,8 +598,8 @@ int cld_begin(const char *thishost, const char *thiscell,
 	}
 
 	if (!ses.forced_hosts) {
-		GList *tmp, *host_list = NULL;
-		int i = 0;
+		GList *tmp, *host_list;
+		int i;
 
 		if (cldc_getaddr(&host_list, thishost, debugging, cldu_p_log)) {
 			/* Already logged error */
@@ -609,16 +609,20 @@ int cld_begin(const char *thishost, const char *thiscell,
 		/* copy host_list into cld_session host array,
 		 * taking ownership of alloc'd strings along the way
 		 */
-		tmp = host_list;
-		while (i < N_CLD && tmp) {
-			memcpy(&ses.cldv[i].h, tmp->data,
-			       sizeof(struct cldc_host));
-			ses.cldv[i].known = 1;
-			i++;
-			tmp = tmp->next;
+		i = 0;
+		for (tmp = host_list; tmp; tmp = tmp->next) {
+			struct cldc_host *hp = tmp->data;
+			if (i < N_CLD) {
+				memcpy(&ses.cldv[i].h, hp,
+				       sizeof(struct cldc_host));
+				ses.cldv[i].known = 1;
+				i++;
+			} else {
+				free(hp->host);
+			}
+			free(hp);
 		}
 
-		/* FIXME: memleak, if list longer than N_CLD */
 		g_list_free(host_list);
 	}
 
