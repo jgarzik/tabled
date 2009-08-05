@@ -22,13 +22,18 @@
 
 #define N_CLD		10	/* 5 * (v4+v6) */
 
+struct cld_host {
+	int known;
+	struct cldc_host h;
+};
+
 struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
 	bool sess_open;
 	struct cldc_udp *lib;		/* library state */
 
 	int actx;		/* Active host cldv[actx] */
-	struct cldc_host cldv[N_CLD];
+	struct cld_host cldv[N_CLD];
 
 	struct event ev;	/* Associated with fd */
 	char *cfname;		/* /tabled-cell directory */
@@ -85,7 +90,7 @@ static int cldu_nextactive(struct cld_session *sp)
 			n = 0;
 	}
 	/* Full circle, end on the old actx */
-	return n;
+	return sp->actx;
 }
 
 static int cldu_setcell(struct cld_session *sp, const char *thiscell)
@@ -236,11 +241,11 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	}
 
 	sp->actx = newactive;
-	hp = &sp->cldv[sp->actx];
-	if (!hp->known) {
+	if (!sp->cldv[sp->actx].known) {
 		applog(LOG_ERR, "No CLD hosts");
 		goto err_addr;
 	}
+	hp = &sp->cldv[sp->actx].h;
 
 	rc = cldc_udp_new(hp->host, hp->port, &sp->lib);
 	if (rc) {
@@ -606,9 +611,9 @@ int cld_begin(const char *thishost, const char *thiscell,
 		 */
 		tmp = host_list;
 		while (i < N_CLD && tmp) {
-			memcpy(&ses.cldv[i], tmp->data,
+			memcpy(&ses.cldv[i].h, tmp->data,
 			       sizeof(struct cldc_host));
-			
+			ses.cldv[i].known = 1;
 			i++;
 			tmp = tmp->next;
 		}
@@ -651,7 +656,7 @@ void cld_end(void)
 	if (!ses.forced_hosts) {
 		for (i = 0; i < N_CLD; i++) {
 			if (ses.cldv[i].known)
-				free(ses.cldv[i].host);
+				free(ses.cldv[i].h.host);
 		}
 	}
 
@@ -662,7 +667,7 @@ void cld_end(void)
 void cldu_add_host(const char *hostname, unsigned int port)
 {
 	static struct cld_session *sp = &ses;
-	struct cldc_host *hp;
+	struct cld_host *hp;
 	int i;
 
 	for (i = 0; i < N_CLD; i++) {
@@ -673,7 +678,7 @@ void cldu_add_host(const char *hostname, unsigned int port)
 	if (i >= N_CLD)
 		return;
 
-	if (cldc_saveaddr(hp, 100, 100, port, strlen(hostname), hostname,
+	if (cldc_saveaddr(&hp->h, 100, 100, port, strlen(hostname), hostname,
 			  debugging, cldu_p_log))
 		return;
 	hp->known = 1;
