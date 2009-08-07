@@ -392,8 +392,8 @@ static bool object_put_end(struct client *cli)
 					  &cli->req.hdr[i]);
 
 	if (type) {
-		struct http_hdr hdr = { "Content-Type", type };
-		append_hdr_string(string_lens, string_data, &hdr);
+		struct http_hdr ct_hdr = { "Content-Type", type };
+		append_hdr_string(string_lens, string_data, &ct_hdr);
 	}
 
 	/* allocate and build object metadata for storage */
@@ -846,7 +846,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	enum errcode err = InternalError;
 	char buf[4096];
 	ssize_t bytes;
-	bool access, modified = true;
+	bool access_ok, modified = true;
 	GString *extra_hdr;
 	size_t alloc_len;
 	DB *objs = tdb.objs;
@@ -860,8 +860,8 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	uint16_t *slenp;
 
 #if 0 /* FIXME look it up in the docs if we need access to bucket */
-	access = has_access(user, bucket, key, "READ");
-	if (!access) {
+	access_ok = has_access(user, bucket, key, "READ");
+	if (!access_ok) {
 		err = AccessDenied;
 		goto err_out_acc;
 	}
@@ -889,8 +889,8 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	obj = p = pval.data;
 
 	/* Now that we know that the object exists, let's look up access */
-	access = has_access(user, bucket, key, "READ");
-	if (!access) {
+	access_ok = has_access(user, bucket, key, "READ");
+	if (!access_ok) {
 		err = AccessDenied;
 		goto err_out_reset;
 	}

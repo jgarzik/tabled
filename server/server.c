@@ -360,13 +360,13 @@ err_pat:
 	return err;
 }
 
-static void term_signal(int signal)
+static void term_signal(int signo)
 {
 	server_running = false;
 	event_loopbreak();
 }
 
-static void stats_signal(int signal)
+static void stats_signal(int signo)
 {
 	dump_stats = true;
 	event_loopbreak();
@@ -1256,8 +1256,8 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	cli = cli_alloc();
 	if (!cli) {
 		struct sockaddr_in6 a;
-		int fd = accept(sock->fd, (struct sockaddr *) &a, &addrlen);
-		close(fd);
+		int cli_fd = accept(sock->fd, (struct sockaddr *) &a, &addrlen);
+		close(cli_fd);
 		return;
 	}
 

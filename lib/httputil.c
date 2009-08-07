@@ -39,9 +39,9 @@ time_t str2time(const char *timestr)
 	return mktime(&tm);
 }
 
-char *time2str(char *strbuf, time_t time)
+char *time2str(char *strbuf, time_t src_time)
 {
-	struct tm *tm = gmtime(&time);
+	struct tm *tm = gmtime(&src_time);
 	strftime(strbuf, 64, "%a, %d %b %Y %H:%M:%S %z", tm);
 	return strbuf;
 }

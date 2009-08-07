@@ -67,7 +67,7 @@ void cldu_p_log(const char *fmt, ...)
 		vsyslog(LOG_DEBUG, fmt, ap);
 	else
 		vfprintf(stderr, fmt, ap);
-		
+
 	va_end(ap);
 }
 
@@ -507,7 +507,7 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	struct cld_session *sp = carg->private;
 	// struct cldc_call_opts copts;
 	// int rc;
-	char *ptr;
+	const char *ptr;
 	int dir_len;
 	int total_len, rec_len, name_len;
 	char buf[65];

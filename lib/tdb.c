@@ -257,7 +257,7 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 		dbenv->err(dbenv, rc, "dbenv->set_local_site");
 		goto err_out;
 	}
- 
+
 	rc = dbenv->set_event_notify(dbenv, db4_event);
 	if (rc) {
 		dbenv->err(dbenv, rc, "dbenv->set_event_notify");
