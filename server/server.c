@@ -402,13 +402,18 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 	return rcb;
 }
 
-static void cli_free(struct client *cli)
+static void cli_write_free_all(struct client *cli)
 {
 	struct client_write *wr, *tmp;
 
 	list_for_each_entry_safe(wr, tmp, &cli->write_q, node) {
 		cli_write_free(cli, wr, false);
 	}
+}
+
+static void cli_free(struct client *cli)
+{
+	cli_write_free_all(cli);
 
 	cli_out_end(cli);
 	cli_in_end(cli);
@@ -513,7 +518,7 @@ do_write:
 		if (errno == EINTR)
 			goto do_write;
 		if (errno != EAGAIN)
-			cli->state = evt_dispose;
+			goto err_out;
 		return;
 	}
 
@@ -547,9 +552,15 @@ do_write:
 		cli->writing = false;
 		if (event_del(&cli->write_ev) < 0) {
 			applog(LOG_WARNING, "cli_writable event_del");
-			cli->state = evt_dispose;
+			goto err_out;
 		}
 	}
+
+	return;
+
+err_out:
+	cli->state = evt_dispose;
+	cli_write_free_all(cli);
 }
 
 bool cli_write_start(struct client *cli)
