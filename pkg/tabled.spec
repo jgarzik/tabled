@@ -1,13 +1,13 @@
 Name:		tabled
 Version:	0.3
-Release:	0.8.g0b3ec75c%{?dist}
+Release:	0.9.g20e56358%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 0b3ec75c239e231ee2af8252466ec4fd9da2bd7c
+# pulled from upstream git, commit 20e56358d9320fc73ef2ecc689be960c9be91805
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
@@ -102,6 +102,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Aug  7 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.9.g20e56358
+- update to git commit 20e56358d9320fc73ef2ecc689be960c9be91805
+
 * Wed Jul 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.8.g0b3ec75c
 - update to git commit 0b3ec75c239e231ee2af8252466ec4fd9da2bd7c
 
