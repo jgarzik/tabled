@@ -47,6 +47,8 @@
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
 #include <elist.h>
+#include <chunkc.h>
+#include <cldc.h>
 #include "tabled.h"
 
 #define PROGRAM_NAME "tabled"
@@ -1572,14 +1574,13 @@ int main (int argc, char *argv[])
 	tabled_srv.state_cld = ST_CLD_INIT;
 	tabled_srv.state_tdb = ST_TDB_INIT;
 
-	/* initialize the random number as needed for libchunkdc */
-	srand(time(NULL));
-
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
 
 	compile_patterns();
 
+	cldc_init();
+	stc_init();
 	SSL_library_init();
 	SSL_load_error_strings();
 
