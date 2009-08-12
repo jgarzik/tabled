@@ -93,7 +93,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool dump_stats;
-bool use_syslog = true;
+static bool use_syslog = true;
 int debugging = 0;
 
 struct server tabled_srv = {

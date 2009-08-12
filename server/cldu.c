@@ -56,21 +56,6 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static void add_remote(char *name);
 
-/* The format comes with a trailing newline, but fortunately applog strips it */
-void cldu_p_log(const char *fmt, ...)
-{
-	va_list ap;
-
-	va_start(ap, fmt);
-
-	if (use_syslog)
-		vsyslog(LOG_DEBUG, fmt, ap);
-	else
-		vfprintf(stderr, fmt, ap);
-
-	va_end(ap);
-}
-
 /*
  * Identify the next host to be tried.
  *
@@ -219,7 +204,7 @@ static struct cldc_ops cld_ops = {
 	.timer_ctl =	cldu_p_timer_ctl,
 	.pkt_send =	cldu_p_pkt_send,
 	.event =	cldu_p_event,
-	.printf =	cldu_p_log,
+	.errlog =	applog,
 };
 
 /*
@@ -601,7 +586,7 @@ int cld_begin(const char *thishost, const char *thiscell,
 		GList *tmp, *host_list;
 		int i;
 
-		if (cldc_getaddr(&host_list, thishost, debugging, cldu_p_log)) {
+		if (cldc_getaddr(&host_list, thishost, debugging, applog)) {
 			/* Already logged error */
 			goto err_addr;
 		}
@@ -683,7 +668,7 @@ void cldu_add_host(const char *hostname, unsigned int port)
 		return;
 
 	if (cldc_saveaddr(&hp->h, 100, 100, port, strlen(hostname), hostname,
-			  debugging, cldu_p_log))
+			  debugging, applog))
 		return;
 	hp->known = 1;
 

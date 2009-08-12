@@ -282,7 +282,6 @@ int objid_init(void);
 
 /* server.c */
 extern int debugging;
-extern bool use_syslog;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);
