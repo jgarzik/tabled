@@ -189,7 +189,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 {
 	struct config_context *cc = user_data;
 	struct stat statb;
-	int n;
+	long n;
 
 	if (!strcmp(element_name, "PID") && cc->text) {
 		if (tabled_srv.pid_file) {
