@@ -72,6 +72,8 @@ int stor_open(struct open_chunk *cep, struct storage_node *stn)
 	cep->node = stn;
 	stn->nchu++;
 
+	/* cep->stc->verbose = 1; */
+
 	return 0;
 }
 
