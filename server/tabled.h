@@ -297,7 +297,7 @@ extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
 
 /* config.c */
-void read_config(void);
+extern void read_config(void);
 
 /* storage.c */
 extern int stor_open(struct open_chunk *cep, struct storage_node *stn);
