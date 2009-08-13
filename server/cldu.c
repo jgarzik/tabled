@@ -583,7 +583,7 @@ int cld_begin(const char *thishost, const char *thiscell,
 	}
 
 	if (!ses.forced_hosts) {
-		GList *tmp, *host_list;
+		GList *tmp, *host_list = NULL;
 		int i;
 
 		if (cldc_getaddr(&host_list, thishost, debugging, applog)) {
