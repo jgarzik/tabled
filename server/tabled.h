@@ -312,6 +312,7 @@ extern bool stor_put_end(struct open_chunk *cep);
 extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);
 extern int stor_obj_del(struct storage_node *stn, uint64_t key);
 extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
+extern void stor_add_node(const char *data, size_t len);
 extern void stor_init(void);
 
 #endif /* __TABLED_H__ */

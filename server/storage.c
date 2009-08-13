@@ -309,6 +309,14 @@ bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 }
 
 /*
+ * Add a node using its parameters file (not nul-terminated).
+ */
+void stor_add_node(const char *data, size_t len)
+{
+	/* P3 */ applog(LOG_INFO, "Adding some node or sumthin.");
+}
+
+/*
  * Wait for chunkd instances to come up, in case we start simultaneously
  * from a "make check" or a parallel boot script on the same computer,
  * of if a datacenter is being brought up.

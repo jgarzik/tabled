@@ -18,12 +18,10 @@ fi
 
 # May be different on Solaris... like /usr/libexec or such.
 cld -d data/cld -P cld.pid -p 18081 -E
-
-sleep 3
-
 chunkd -P chunkd.pid -f $top_srcdir/test/chunkd-test.conf -E
 
-sleep 3
+# 3 is enough, but we like to let chunkd to come up eary and register with CLD
+sleep 7
 
 ../server/tabled -P tabled.pid -C $top_srcdir/test/tabled-test.conf -E
 
