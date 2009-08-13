@@ -1670,10 +1670,9 @@ int main (int argc, char *argv[])
 
 	applog(LOG_INFO, "shutting down");
 
-	cld_end();
-
 	rc = 0;
 
+	cld_end();
 err_cld_session:
 	/* net_close(); */
 err_out_net:
