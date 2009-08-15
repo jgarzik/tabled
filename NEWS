@@ -1,3 +1,18 @@
+
+Version 0.3 - August 15, 2009
+
+- use chunkd as backing store, rather than local filesystem
+- add CLD client support
+- add replication support
+- add option that permits switching between stderr and syslog, for logging
+- prefer config file to cmd line options, for most settings
+- config file: add option to force local hostname to a value
+- rename client lib to libhttpstor
+- add basic ACL support
+- FreeBSD, OpenSolaris portability fixes (though neither fully work
+  at present)
+- many bug fixes
+
 Version 0.2 - March 7, 2009
 
 - use db4 as backend metadata db

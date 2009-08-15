@@ -15,28 +15,30 @@ likely useful to you, unless you are a tabled maintainer.
 
 	$ vi NEWS
 
-4) commit changes to NEWS and configure.ac, with a commit message
-   along the lines of "Release version 0.3"
+4) commit changes to NEWS and configure.ac, regenerate local configure,
+   with a commit message along the lines of "Release version 0.3"
 
 	$ git commit -a
+	$ ./autogen.sh
 
 5) tag release, with just-committed (in configure.ac) version number:
 
-	$ git tag v0.3
+	$ git tag -a v0.3
 
 6) create tarball for distribution
 
 	$ make distcheck
 
 7) upload tarball to master.kernel.org, directory
-   /pub/software/network/distsrv
+   /pub/software/network/distsrv/tabled
 
 	$ scp tabled-0.3.tar.gz \
-	  master.kernel.org:/pub/software/network/distsrv
+	  master.kernel.org:/pub/software/network/distsrv/tabled
 
-8) Adjust configure.ac to next upcoming version; add "git" suffix,
-   e.g. "0.4git" follows release "0.3".  Commit change, with a release message
-   along the lines of "Bump version to 0.4git"
+8) Adjust configure.ac to next upcoming version;
+   add "git" suffix, e.g. "0.4git" follows release "0.3".  Commit
+   change, with a release message along the lines of
+   "Bump version to 0.4git"
 
 	$ vi configure.ac
 	$ git commit -a
