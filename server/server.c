@@ -113,9 +113,6 @@ struct compiled_pat patterns[] = {
 	{ "\\d+\\.\\d+\\.\\d+\\.\\d+" },
 };
 
-static char *state_name_cld[] = {
-	"Init", "Active"
-};
 static char *state_name_tdb[ST_TDBNUM] = {
 	"Init", "Open", "Active", "Master", "Slave"
 };
@@ -383,8 +380,7 @@ static void stats_dump(void)
 	X(event);
 	X(tcp_accept);
 	X(opt_write);
-	applog(LOG_INFO, "State: CLD %s TDB %s",
-	    state_name_cld[tabled_srv.state_cld],
+	applog(LOG_INFO, "State: TDB %s",
 	    state_name_tdb[tabled_srv.state_tdb]);
 }
 
@@ -1373,31 +1369,48 @@ static void tdb_state_cb(enum db_event event)
 	}
 }
 
-static void cld_state_cb(enum st_cld newstate)
+/*
+ * Due to the way storage_node management is tightly woven into the
+ * server, the management of nodes is not in storage.c, which deals
+ * with the interface to Chunk and little more.
+ *
+ * We don't even bother with registering this callback, just call it by name. 
+ */
+void stor_update_cb(void)
 {
 	unsigned int env_flags;
 
-	if (debugging) {
-		applog(LOG_DEBUG, "CLD state %s > %s",
-		       state_name_cld[tabled_srv.state_cld],
-		       state_name_cld[newstate]);
+	if (debugging)
+		applog(LOG_DEBUG, "We now have %d storage node(s)",
+		       tabled_srv.num_stor);
+	if (tabled_srv.num_stor < 1) {
+		/*
+		 * FIXME In the future, initiate net_close here if net was up.
+		 */
+		return;
 	}
-	tabled_srv.state_cld = newstate;
-	if (newstate == ST_CLD_ACTIVE) {
-		if (tabled_srv.state_tdb == ST_TDB_INIT) {
-			tabled_srv.state_tdb = ST_TDB_OPEN;
 
-			env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
-			if (tdb_init(&tdb, tabled_srv.tdb_dir, NULL,
-				     env_flags, "tabled", true,
-				     tabled_srv.rep_remotes,
-				     tabled_srv.ourhost, tabled_srv.rep_port,
-				     tdb_state_cb)) {
-				tabled_srv.state_tdb = ST_TDB_INIT;
-				applog(LOG_ERR, "Failed to open TDB, limping");
-			}
+	/*
+	 * We initiate operations even if there's no redundancy in order
+	 * to permit bootstrapping and build-time self-checking.
+	 */
+	if (tabled_srv.state_tdb == ST_TDB_INIT) {
+		tabled_srv.state_tdb = ST_TDB_OPEN;
+
+		env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+		if (tdb_init(&tdb, tabled_srv.tdb_dir, NULL,
+			     env_flags, "tabled", true,
+			     tabled_srv.rep_remotes,
+			     tabled_srv.ourhost, tabled_srv.rep_port,
+			     tdb_state_cb)) {
+			tabled_srv.state_tdb = ST_TDB_INIT;
+			applog(LOG_ERR, "Failed to open TDB, limping");
 		}
-		/* FIXME re-poke in case of TDB_MASTER, slave list may change */
+	} else if (tabled_srv.state_tdb == ST_TDB_MASTER) {
+		/*
+		 * FIXME This is where we should process redundancy decreases.
+		 */
+		;
 	}
 }
 
@@ -1571,7 +1584,6 @@ int main (int argc, char *argv[])
 	int rc = 1;
 
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
-	tabled_srv.state_cld = ST_CLD_INIT;
 	tabled_srv.state_tdb = ST_TDB_INIT;
 
 	/* isspace() and strcasecmp() consistency requires this */
@@ -1579,10 +1591,12 @@ int main (int argc, char *argv[])
 
 	compile_patterns();
 
-	cldc_init();
-	stc_init();
 	SSL_library_init();
 	SSL_load_error_strings();
+
+	stc_init();
+
+	cld_init();
 
 	/*
 	 * parse command line
@@ -1645,7 +1659,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_net;
 
-	if (cld_begin(tabled_srv.ourhost, NULL, cld_state_cb) != 0) {
+	if (cld_begin(tabled_srv.ourhost, NULL) != 0) {
 		rc = 1;
 		goto err_cld_session;
 	}

@@ -80,12 +80,21 @@ struct compiled_pat {
 	pcre		*re;
 };
 
+struct geo {
+	char			*area;
+	char			*zone;		/* Building */
+	char			*rack;
+};
+
 struct storage_node {
 	struct list_head	all_link;
+	uint32_t		id;
+
 	unsigned		alen;
 	int			addr_af;
 	struct sockaddr_in6	addr;
 	char *hostname;		/* Only used because stc_new is overly smart. */
+
 	int nchu;		/* number of open_chunk */
 };
 
@@ -170,10 +179,6 @@ struct client {
 	char			req_buf[CLI_REQ_BUF_SZ]; /* input buffer */
 };
 
-enum st_cld {
-	ST_CLD_INIT, ST_CLD_ACTIVE
-};
-
 enum st_tdb {
 	ST_TDB_INIT, ST_TDB_OPEN, ST_TDB_ACTIVE, ST_TDB_MASTER, ST_TDB_SLAVE,
 	ST_TDBNUM
@@ -215,9 +220,9 @@ struct server {
 
 	GList			*sockets;
 	struct list_head	all_stor;	/* struct storage_node */
+	int			num_stor;	/* number of storage_node's  */
 	uint64_t		object_count;
 
-	enum st_cld		state_cld;
 	enum st_tdb		state_tdb, state_tdb_new;
 	enum st_net		state_net;
 
@@ -255,9 +260,9 @@ extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
 /* cldc.c */
+extern void cld_init(void);
+extern int cld_begin(const char *fqdn, const char *cell);
 extern void cldu_add_host(const char *host, unsigned int port);
-extern int cld_begin(const char *fqdn, const char *cell,
-		     void (*state_cb)(enum st_cld));
 extern void cld_end(void);
 
 /* util.c */
@@ -295,6 +300,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
+extern void stor_update_cb(void);
 
 /* config.c */
 extern void read_config(void);
@@ -312,7 +318,11 @@ extern bool stor_put_end(struct open_chunk *cep);
 extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);
 extern int stor_obj_del(struct storage_node *stn, uint64_t key);
 extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
-extern void stor_add_node(const char *data, size_t len);
+extern void stor_add_node(uint32_t nid, const char *hostname,
+			  const char *portstr, struct geo *locp);
 extern void stor_init(void);
+
+/* storparse.c */
+extern void stor_parse(char *fname, const char *text, size_t len);
 
 #endif /* __TABLED_H__ */

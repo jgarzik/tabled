@@ -97,7 +97,7 @@ int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size)
 	cep->wtogo = size;
 	cep->wkey = key;
 	if (debugging)
-		applog(LOG_INFO, "stor put %s new for %lld\n",
+		applog(LOG_INFO, "stor put %s new for %lld",
 		       stckey, (long long) size);
 
 	return 0;
@@ -310,12 +310,73 @@ bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 	return true;
 }
 
-/*
- * Add a node using its parameters file (not nul-terminated).
- */
-void stor_add_node(const char *data, size_t len)
+void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
+		   struct geo *locp)
 {
-	/* P3 */ applog(LOG_INFO, "Adding some node or sumthin.");
+	struct addrinfo hints;
+	struct addrinfo *res, *res0;
+	struct storage_node *sn;
+	int rc;
+
+	/* XXX FIXME search all_stor for dup NIDs */
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = PF_UNSPEC;
+	hints.ai_socktype = SOCK_DGRAM;
+
+	rc = getaddrinfo(hostname, portstr, &hints, &res0);
+	if (rc) {
+		applog(LOG_WARNING, "getaddrinfo(%s:%s) failed: %s",
+		       hostname, portstr, gai_strerror(rc));
+		return;
+	}
+
+	for (res = res0; res; res = res->ai_next) {
+		if (res->ai_family != AF_INET && res->ai_family != AF_INET6)
+			continue;
+
+		if (res->ai_addrlen > ADDRSIZE)		/* should not happen */
+			continue;
+
+		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
+			applog(LOG_WARNING, "No core (%ld)",
+			       (long) sizeof(struct storage_node));
+			break;
+		}
+		memset(sn, 0, sizeof(struct storage_node));
+
+		sn->id = nid;
+
+		memcpy(&sn->addr, res->ai_addr, res->ai_addrlen);
+		sn->addr_af = res->ai_family;
+		sn->alen = res->ai_addrlen;
+
+		if ((sn->hostname = strdup(hostname)) == NULL) {
+			applog(LOG_WARNING, "No core");
+			free(sn);
+			break;
+		}
+
+		if (debugging) {
+			char nhost[41];
+			char nport[6];
+			if (getnameinfo((struct sockaddr *) &sn->addr, sn->alen,
+					nhost, sizeof(nhost),
+				        nport, sizeof(nport),
+					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
+				applog(LOG_INFO, "Found Chunk host %s port %s",
+				       nhost, nport);
+			} else {
+				applog(LOG_INFO, "Found Chunk host");
+			}
+		}
+
+		list_add(&sn->all_link, &tabled_srv.all_stor);
+		tabled_srv.num_stor++;
+	}
+
+	freeaddrinfo(res0);
+	return;
 }
 
 /*

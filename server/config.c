@@ -6,14 +6,11 @@
 #include "tabled-config.h"
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/socket.h>
 #include <glib.h>
 #include <syslog.h>
 #include <string.h>
 #include <stdio.h>
-#include <unistd.h>
 #include <errno.h>
-#include <netdb.h>
 #include <ctype.h>
 #include "tabled.h"
 
@@ -24,6 +21,7 @@ struct config_context {
 	struct listen_cfg tmp_listen;
 
 	bool		in_storage;
+	unsigned int	stor_nid;
 	char		*stor_port;
 	char		*stor_host;
 
@@ -51,6 +49,7 @@ static void cfg_elm_start (GMarkupParseContext *context,
 	else if (!strcmp(element_name, "StorageNode")) {
 		if (!cc->in_storage) {
 			cc->in_storage = true;
+			cc->stor_nid++;
 		} else {
 			applog(LOG_ERR, "Nested StorageNode in configuration");
 		}
@@ -64,71 +63,10 @@ static void cfg_elm_start (GMarkupParseContext *context,
 	}
 }
 
-static void cfg_add_storage(const char *hostname, const char *portstr)
-{
-	struct addrinfo hints;
-	struct addrinfo *res, *res0;
-	struct storage_node *sn;
-	int rc;
-
-	memset(&hints, 0, sizeof(struct addrinfo));
-	hints.ai_family = PF_UNSPEC;
-	hints.ai_socktype = SOCK_DGRAM;
-
-	rc = getaddrinfo(hostname, portstr, &hints, &res0);
-	if (rc) {
-		applog(LOG_WARNING, "getaddrinfo(%s:%s) failed: %s",
-		       hostname, portstr, gai_strerror(rc));
-		return;
-	}
-
-	for (res = res0; res; res = res->ai_next) {
-		if (res->ai_family != AF_INET && res->ai_family != AF_INET6)
-			continue;
-
-		if (res->ai_addrlen > ADDRSIZE)		/* should not happen */
-			continue;
-
-		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
-			applog(LOG_WARNING, "No core (%ld)",
-			       (long) sizeof(struct storage_node));
-			break;
-		}
-		memset(sn, 0, sizeof(struct storage_node));
-
-		memcpy(&sn->addr, res->ai_addr, res->ai_addrlen);
-		sn->addr_af = res->ai_family;
-		sn->alen = res->ai_addrlen;
-
-		if ((sn->hostname = strdup(hostname)) == NULL) {
-			applog(LOG_WARNING, "No core");
-			free(sn);
-			break;
-		}
-
-		if (debugging) {
-			char nhost[41];
-			char nport[6];
-			if (getnameinfo((struct sockaddr *) &sn->addr, sn->alen,
-					nhost, sizeof(nhost),
-				        nport, sizeof(nport),
-					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				applog(LOG_INFO, "Found Chunk host %s port %s",
-				       nhost, nport);
-			} else {
-				applog(LOG_INFO, "Found Chunk host");
-			}
-		}
-
-		list_add(&sn->all_link, &tabled_srv.all_stor);
-	}
-
-	freeaddrinfo(res0);
-	return;
-}
-
 static void cfg_elm_end_storage(struct config_context *cc)
 {
+	struct geo dummy_loc;
+
 	if (cc->text) {
 		applog(LOG_WARNING, "Extra text in StorageNode element: \"%s\"",
 		       cc->text);
@@ -146,7 +84,15 @@ static void cfg_elm_end_storage(struct config_context *cc)
 		goto end;
 	}
 
-	cfg_add_storage(cc->stor_host, cc->stor_port);
+	memset(&dummy_loc, 0, sizeof(struct geo));
+	stor_add_node(cc->stor_nid, cc->stor_host, cc->stor_port, &dummy_loc);
+	/*
+	 * We don't call stor_update_cb here because doing it so early
+	 * hangs TDB replication for some reason (and produces a process
+	 * that needs -9 to kill).
+	 *
+	 * Instead, there's a little plug in cldu.c that does it.
+	 */
 
 end:
 	free(cc->stor_host);

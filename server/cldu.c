@@ -5,6 +5,7 @@
 #include "tabled-config.h"
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <glib.h>
 #include <syslog.h>
 #include <string.h>
@@ -33,11 +34,14 @@ struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
 	bool sess_open;
 	struct cldc_udp *lib;		/* library state */
+	struct event tm;
+	int retry_cnt;
 
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
 
 	char *thiscell;
+	char *thishost;
 	struct event ev;	/* Associated with fd */
 	char *cfname;		/* /tabled-cell directory */
 	struct cldc_fh *cfh;	/* /tabled-cell directory, keep open for scan */
@@ -49,8 +53,6 @@ struct cld_session {
 	struct cldc_fh *yfh;	/* /chunk-cell/NID file */
 
 	struct list_head chunks;	/* found in xfname, struct chunk_node */
-
-	void (*state_cb)(enum st_cld);
 };
 
 static int cldu_set_cldc(struct cld_session *sp, int newactive);
@@ -60,6 +62,7 @@ static int cldu_open_f_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_lock_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
+static void try_open_x(struct cld_session *sp);
 static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_get_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_close_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
@@ -69,6 +72,8 @@ static int cldu_get_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static int cldu_close_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc);
 static void add_remote(const char *name);
 static void add_chunk_node(struct cld_session *sp, const char *name);
+
+static struct timeval cldu_retry_delay = { 5, 0 };
 
 /*
  * Identify the next host to be tried.
@@ -104,6 +109,9 @@ static int cldu_setcell(struct cld_session *sp,
 	sp->thiscell = strdup(thiscell);
 	if (!sp->thiscell)
 		goto err_oom;
+	sp->thishost = strdup(thishost);
+	if (!sp->thishost)
+		goto err_oom;
 
 	if (asprintf(&mem, "/tabled-%s", thiscell) == -1)
 		goto err_oom;
@@ -122,6 +130,15 @@ static int cldu_setcell(struct cld_session *sp,
 err_oom:
 	applog(LOG_WARNING, "OOM in cldu");
 	return 0;
+}
+
+static void cldu_timer(int fd, short events, void *userdata)
+{
+	struct cld_session *sp = userdata;
+
+	if (debugging)
+		applog(LOG_DEBUG, "Trying to open %s\n", sp->xfname);
+	try_open_x(sp);
 }
 
 static void cldu_event(int fd, short events, void *userdata)
@@ -451,8 +468,6 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 {
 	struct cld_session *sp = carg->private;
-	struct cldc_call_opts copts;
-	int rc;
 	const char *ptr;
 	int dir_len;
 	int total_len, rec_len, name_len;
@@ -479,7 +494,7 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		else
 			buf[64] = 0;
 
-		if (!strcmp(buf, tabled_srv.ourhost)) {	/* use thishost XXX */
+		if (!strcmp(buf, sp->thishost)) {
 			if (debugging)
 				applog(LOG_DEBUG, " %s (ourselves)", buf);
 		} else {
@@ -492,12 +507,32 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		dir_len -= total_len;
 	}
 
-	if (sp->state_cb)
-		(*sp->state_cb)(ST_CLD_ACTIVE);
-
 	/*
-	 * Now we can collect the Chunk nodes in our cell.
+	 * This will go away with the demise of <StorageNode>.
 	 */
+	if (tabled_srv.num_stor) {
+		stor_update_cb();
+		return 0;
+	}
+
+	sp->retry_cnt = 0;
+	try_open_x(sp);
+	return 0;
+}
+
+/*
+ * Open the xfname, so we can collect registered Chunk servers.
+ */
+static void try_open_x(struct cld_session *sp)
+{
+	struct cldc_call_opts copts;
+	int rc;
+
+	if (++sp->retry_cnt >= 5) {
+		applog(LOG_INFO, "Out of retries for %s, bailing", sp->xfname);
+		exit(1);
+	}
+
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = cldu_open_x_cb;
 	copts.private = sp;
@@ -507,7 +542,6 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	if (rc) {
 		applog(LOG_ERR, "cldc_open(%s) call error: %d", sp->xfname, rc);
 	}
-	return 0;
 }
 
 static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
@@ -517,8 +551,14 @@ static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->xfname, errc);
-		/* XXX recycle, maybe Chunks aren't up yet. */
+		if (errc == CLE_INODE_INVAL) {
+			applog(LOG_ERR, "CLD open(%s) failed: %d, retrying",
+			       sp->xfname, errc);
+			evtimer_add(&sp->tm, &cldu_retry_delay);
+		} else {
+			applog(LOG_ERR, "CLD open(%s) failed: %d",
+			       sp->xfname, errc);
+		}
 		return 0;
 	}
 	if (sp->xfh == NULL) {
@@ -530,7 +570,7 @@ static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	// if (debugging)
+	if (debugging)
 		applog(LOG_DEBUG, "CLD directory \"%s\" opened", sp->xfname);
 
 	/*
@@ -606,10 +646,12 @@ static int cldu_close_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (list_empty(&sp->chunks))
-		applog(LOG_INFO, "No Chunk nodes found");
-	else
+	if (list_empty(&sp->chunks)) {
+		applog(LOG_INFO, "%s: No Chunk nodes found", sp->xfname);
+		try_open_x(sp);
+	} else {
 		next_chunk(sp);
+	}
 	return 0;
 }
 
@@ -698,7 +740,7 @@ static int cldu_get_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	if (debugging)
 		applog(LOG_DEBUG,
 		       "got %d bytes from %s\n", len, sp->yfname);
-	stor_add_node(ptr, len);
+	stor_parse(sp->yfname, ptr, len);
 
 close_and_next:
 	memset(&copts, 0, sizeof(copts));
@@ -777,29 +819,31 @@ static void add_chunk_node(struct cld_session *sp, const char *name)
 static struct cld_session ses;
 
 /*
+ * Global and 1-instance initialization.
+ */
+void cld_init()
+{
+	cldc_init();
+
+	// memset(&ses, 0, sizeof(struct cld_session));
+	INIT_LIST_HEAD(&ses.chunks);
+}
+
+/*
  * This initiates our sole session with a CLD instance.
  */
-int cld_begin(const char *thishost, const char *thiscell,
-	      void (*cb)(enum st_cld))
+int cld_begin(const char *thishost, const char *thiscell)
 {
+	static struct cld_session *sp = &ses;
 
-	cldc_init();
-	INIT_LIST_HEAD(&ses.chunks);
+	evtimer_set(&ses.tm, cldu_timer, &ses);
 
-	/*
-	 * As long as we permit pre-seeding lists of CLD hosts,
-	 * we cannot wipe our session anymore. Note though, as long
-	 * as cld_end terminates it right, we can call cld_begin again.
-	 */
-	// memset(&ses, 0, sizeof(struct cld_session));
-	ses.state_cb = cb;
-
-	if (cldu_setcell(&ses, thiscell, thishost)) {
+	if (cldu_setcell(sp, thiscell, thishost)) {
 		/* Already logged error */
 		goto err_cell;
 	}
 
-	if (!ses.forced_hosts) {
+	if (!sp->forced_hosts) {
 		GList *tmp, *host_list = NULL;
 		int i;
 
@@ -815,9 +859,9 @@ int cld_begin(const char *thishost, const char *thiscell,
 		for (tmp = host_list; tmp; tmp = tmp->next) {
 			struct cldc_host *hp = tmp->data;
 			if (i < N_CLD) {
-				memcpy(&ses.cldv[i].h, hp,
+				memcpy(&sp->cldv[i].h, hp,
 				       sizeof(struct cldc_host));
-				ses.cldv[i].known = 1;
+				sp->cldv[i].known = 1;
 				i++;
 			} else {
 				free(hp->host);
@@ -834,7 +878,7 @@ int cld_begin(const char *thishost, const char *thiscell,
 	 * -- Actually, it only works when recovering from CLD failure.
 	 *    Thereafter, any slave CLD redirects us to the master.
 	 */
-	if (cldu_set_cldc(&ses, 0)) {
+	if (cldu_set_cldc(sp, 0)) {
 		/* Already logged error */
 		goto err_net;
 	}
@@ -845,32 +889,6 @@ err_net:
 err_addr:
 err_cell:
 	return -1;
-}
-
-void cld_end(void)
-{
-	int i;
-
-	if (ses.lib) {
-		event_del(&ses.ev);
-		// if (ses.sess_open)	/* kill it always, include half-open */
-		cldc_kill_sess(ses.lib->sess);
-		cldc_udp_free(ses.lib);
-		ses.lib = NULL;
-	}
-
-	if (!ses.forced_hosts) {
-		for (i = 0; i < N_CLD; i++) {
-			if (ses.cldv[i].known)
-				free(ses.cldv[i].h.host);
-		}
-	}
-
-	free(ses.cfname);
-	free(ses.ffname);
-	free(ses.xfname);
-	free(ses.yfname);
-	free(ses.thiscell);
 }
 
 void cldu_add_host(const char *hostname, unsigned int port)
@@ -893,4 +911,42 @@ void cldu_add_host(const char *hostname, unsigned int port)
 	hp->known = 1;
 
 	sp->forced_hosts = true;
+}
+
+void cld_end(void)
+{
+	static struct cld_session *sp = &ses;
+	int i;
+
+	if (sp->lib) {
+		event_del(&sp->ev);
+		// if (sp->sess_open)	/* kill it always, include half-open */
+		cldc_kill_sess(sp->lib->sess);
+		cldc_udp_free(sp->lib);
+		sp->lib = NULL;
+	}
+
+	if (!sp->forced_hosts) {
+		for (i = 0; i < N_CLD; i++) {
+			if (sp->cldv[i].known) {
+				free(sp->cldv[i].h.host);
+				sp->cldv[i].known = false;
+			}
+		}
+	}
+
+	evtimer_del(&sp->tm);
+
+	free(sp->cfname);
+	sp->cfname = NULL;
+	free(sp->ffname);
+	sp->ffname = NULL;
+	free(sp->xfname);
+	sp->xfname = NULL;
+	free(sp->yfname);
+	sp->yfname = NULL;
+	free(sp->thiscell);
+	sp->thiscell = NULL;
+	free(sp->thishost);
+	sp->thishost = NULL;
 }
