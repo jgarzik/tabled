@@ -1,15 +1,13 @@
 Name:		tabled
 Version:	0.3
-Release:	0.11.g7f6a0b63%{?dist}
+Release:	2%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 7f6a0b639167eb64adf223d9f38d13c61e4ff185
-# to recreate tarball, check out commit, then run "make dist"
-Source0:	tabled-%{version}git.tar.gz
+Source0:	tabled-%{version}.tar.gz
 Source2:	tabled.init
 Source3:	tabled.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -17,8 +15,13 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need chunkd and cld to build, because our "make check" spawns
 # private copies of infrastructure daemons.
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
-BuildRequires:	chunkd chunkd-devel cld cld-devel libcurl-devel
+BuildRequires:	chunkd cld libcurl-devel
 BuildRequires:	procps
+BuildRequires:	cld-devel >= 0.2
+BuildRequires:	chunkd-devel >= 0.4
+
+Requires:	cld >= 0.2
+Requires:	chunkd >= 0.4
 
 # chunkd is broken on big-endian... embarrassing!!!
 # FIXME: remove this when chunkd is fixed
@@ -43,7 +46,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n %{name}-%{version}git
+%setup -q
 
 
 %build
@@ -102,6 +105,12 @@ fi
 %{_includedir}/*
 
 %changelog
+* Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.3-2
+- rebuilt with new openssl
+
+* Sat Aug 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-1
+- update to release version 0.3
+
 * Wed Aug 12 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-0.11.g7f6a0b63
 - update to git commit 7f6a0b639167eb64adf223d9f38d13c61e4ff185
 
