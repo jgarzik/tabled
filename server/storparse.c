@@ -214,7 +214,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "Zone")) {
+	else if (!strcmp(element_name, "Building")) {
 		if (!cc->text)
 			return;
 		if (cc->text[0] == '-')
@@ -225,7 +225,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			cc->loc.zone = cc->text;
 		} else {
 			applog(LOG_WARNING,
-			       "%s: Zone not in Geo", cc->fname);
+			       "%s: Building not in Geo", cc->fname);
 			free(cc->text);
 		}
 		cc->text = NULL;
