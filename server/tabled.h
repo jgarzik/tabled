@@ -300,7 +300,7 @@ extern bool cli_cb_free(struct client *cli, struct client_write *wr,
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
-extern void stor_update_cb(void);
+extern int stor_update_cb(void);
 
 /* config.c */
 extern void read_config(void);
@@ -320,7 +320,7 @@ extern int stor_obj_del(struct storage_node *stn, uint64_t key);
 extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
 extern void stor_add_node(uint32_t nid, const char *hostname,
 			  const char *portstr, struct geo *locp);
-extern void stor_init(void);
+extern int stor_node_check(struct storage_node *stn);
 
 /* storparse.c */
 extern void stor_parse(char *fname, const char *text, size_t len);

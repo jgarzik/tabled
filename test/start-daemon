@@ -19,12 +19,12 @@ fi
 # May be different on Solaris... like /usr/libexec or such.
 cld -d data/cld -P cld.pid -p 18081 -E
 chunkd -C $top_srcdir/test/chunkd-test.conf -E
-
-# 3 is enough, but we like to let chunkd to come up early and register with CLD
-sleep 7
-
 ../server/tabled -C $top_srcdir/test/tabled-test.conf -E -D
 
+# We have a special client that waits for tabled to come online, but before
+# that we also have tests that verify that the daemons started and wrote
+# their PID files. So, we need to give the above daemons a chance to progress
+# at least that far.
 sleep 3
 
 exit 0

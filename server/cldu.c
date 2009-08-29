@@ -34,8 +34,16 @@ struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
 	bool sess_open;
 	struct cldc_udp *lib;		/* library state */
-	struct event tm;
 	int retry_cnt;
+
+	/*
+	 * For code sanity and being isomorphic with conventional programming
+	 * using sleep(), neither of the timers must ever be active simultane-
+	 * ously with any other. But using one timer structure is too annoying.
+	 */
+	struct event tm_retry;
+	struct event tm_rescan;
+	struct event tm_reopen;
 
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
@@ -74,6 +82,8 @@ static void add_remote(const char *name);
 static void add_chunk_node(struct cld_session *sp, const char *name);
 
 static struct timeval cldu_retry_delay = { 5, 0 };
+static struct timeval cldu_rescan_delay = { 50, 0 };
+static struct timeval cldu_reopen_delay = { 3, 0 };
 
 /*
  * Identify the next host to be tried.
@@ -132,13 +142,38 @@ err_oom:
 	return 0;
 }
 
-static void cldu_timer(int fd, short events, void *userdata)
+static void cldu_tm_retry(int fd, short events, void *userdata)
+{
+	struct cld_session *sp = userdata;
+
+	if (++sp->retry_cnt >= 5) {
+		applog(LOG_INFO, "Out of retries for %s, bailing", sp->xfname);
+		exit(1);
+	}
+	if (debugging)
+		applog(LOG_DEBUG, "Trying to open %s", sp->xfname);
+	try_open_x(sp);
+}
+
+static void cldu_tm_rescan(int fd, short events, void *userdata)
+{
+	struct cld_session *sp = userdata;
+
+	/* Add rescanning for tabled nodes as well. FIXME */
+	if (debugging)
+		applog(LOG_DEBUG, "Rescanning for Chunks in %s", sp->xfname);
+	try_open_x(sp);
+}
+
+static void cldu_tm_reopen(int fd, short events, void *userdata)
 {
 	struct cld_session *sp = userdata;
 
 	if (debugging)
-		applog(LOG_DEBUG, "Trying to open %s\n", sp->xfname);
-	try_open_x(sp);
+		applog(LOG_DEBUG, "Trying to reopen %d storage nodes",
+		       tabled_srv.num_stor);
+	if (stor_update_cb() < 1)
+		evtimer_add(&sp->tm_reopen, &cldu_reopen_delay);
 }
 
 static void cldu_event(int fd, short events, void *userdata)
@@ -508,10 +543,19 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	}
 
 	/*
+	 * If configuration gives us storage nodes, we shortcut scanning
+	 * of CLD, because:
+	 *  - the scanning may fail, and we should not care
+	 *  - NIDs for configured nodes are auto-assigned and may conflict
 	 * This will go away with the demise of <StorageNode>.
 	 */
 	if (tabled_srv.num_stor) {
-		stor_update_cb();
+		if (debugging)
+			applog(LOG_DEBUG, "Trying to open %d storage nodes",
+			       tabled_srv.num_stor);
+		if (stor_update_cb() < 1) {
+			evtimer_add(&sp->tm_reopen, &cldu_reopen_delay);
+		}
 		return 0;
 	}
 
@@ -527,11 +571,6 @@ static void try_open_x(struct cld_session *sp)
 {
 	struct cldc_call_opts copts;
 	int rc;
-
-	if (++sp->retry_cnt >= 5) {
-		applog(LOG_INFO, "Out of retries for %s, bailing", sp->xfname);
-		exit(1);
-	}
 
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = cldu_open_x_cb;
@@ -551,13 +590,14 @@ static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	int rc;
 
 	if (errc != CLE_OK) {
-		if (errc == CLE_INODE_INVAL) {
-			applog(LOG_ERR, "CLD open(%s) failed: %d, retrying",
-			       sp->xfname, errc);
-			evtimer_add(&sp->tm, &cldu_retry_delay);
+		if (errc == CLE_INODE_INVAL || errc == CLE_NAME_INVAL) {
+			applog(LOG_ERR, "%s: open failed, retrying",
+			       sp->xfname);
+			evtimer_add(&sp->tm_retry, &cldu_retry_delay);
 		} else {
 			applog(LOG_ERR, "CLD open(%s) failed: %d",
 			       sp->xfname, errc);
+			/* XXX we're dead, why not exit(1) right away? */
 		}
 		return 0;
 	}
@@ -647,8 +687,12 @@ static int cldu_close_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	}
 
 	if (list_empty(&sp->chunks)) {
-		applog(LOG_INFO, "%s: No Chunk nodes found", sp->xfname);
-		try_open_x(sp);
+		applog(LOG_INFO, "%s: No Chunk nodes found, retrying",
+		       sp->xfname);
+		if (evtimer_add(&sp->tm_retry, &cldu_retry_delay) != 0) {
+			applog(LOG_ERR, "evtimer_add error %s",
+			       strerror(errno));
+		}
 	} else {
 		next_chunk(sp);
 	}
@@ -738,8 +782,7 @@ static int cldu_get_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	ptr = carg->u.get.buf;
 	len = carg->u.get.size;
 	if (debugging)
-		applog(LOG_DEBUG,
-		       "got %d bytes from %s\n", len, sp->yfname);
+		applog(LOG_DEBUG, "got %d bytes from %s", len, sp->yfname);
 	stor_parse(sp->yfname, ptr, len);
 
 close_and_next:
@@ -771,8 +814,31 @@ static int cldu_close_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	np = list_entry(sp->chunks.next, struct chunk_node, link);
 	list_del(&np->link);
 
-	if (!list_empty(&sp->chunks))
+	if (!list_empty(&sp->chunks)) {
 		next_chunk(sp);
+		return 0;
+	}
+
+	/*
+	 * No more chunks to consider in this cycle, we're all done.
+	 * Now, poke the dispatch about the possible changes in the
+	 * configuration of Chunk.
+	 *
+	 * It's possible that the CLD directories are full of all garbage,
+	 * but no useable Chunk servers. In that case, treat everything
+	 * like a usual retry.
+	 *
+	 * For the case of normal operation, we also set up a rescan, for now.
+	 * In the future, we'll subscribe for change notification. FIXME.
+	 */
+	if (stor_update_cb()) {
+		evtimer_add(&sp->tm_rescan, &cldu_rescan_delay);
+	} else {
+		if (evtimer_add(&sp->tm_retry, &cldu_retry_delay) != 0) {
+			applog(LOG_ERR, "evtimer_add error %s",
+			       strerror(errno));
+		}
+	}
 	return 0;
 }
 
@@ -836,7 +902,9 @@ int cld_begin(const char *thishost, const char *thiscell)
 {
 	static struct cld_session *sp = &ses;
 
-	evtimer_set(&ses.tm, cldu_timer, &ses);
+	evtimer_set(&ses.tm_retry, cldu_tm_retry, &ses);
+	evtimer_set(&ses.tm_rescan, cldu_tm_rescan, &ses);
+	evtimer_set(&ses.tm_reopen, cldu_tm_reopen, &ses);
 
 	if (cldu_setcell(sp, thiscell, thishost)) {
 		/* Already logged error */
@@ -935,7 +1003,9 @@ void cld_end(void)
 		}
 	}
 
-	evtimer_del(&sp->tm);
+	evtimer_del(&sp->tm_retry);
+	evtimer_del(&sp->tm_rescan);
+	evtimer_del(&sp->tm_reopen);
 
 	free(sp->cfname);
 	sp->cfname = NULL;

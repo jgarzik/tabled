@@ -1375,20 +1375,32 @@ static void tdb_state_cb(enum db_event event)
  * with the interface to Chunk and little more.
  *
  * We don't even bother with registering this callback, just call it by name. 
+ *
+ * The return value is used to re-arm rescan mechanism.
  */
-void stor_update_cb(void)
+int stor_update_cb(void)
 {
+	int num_up;
+	struct storage_node *stn;
 	unsigned int env_flags;
 
 	if (debugging)
-		applog(LOG_DEBUG, "We now have %d storage node(s)",
+		applog(LOG_DEBUG, "Know of potential %d storage node(s)",
 		       tabled_srv.num_stor);
-	if (tabled_srv.num_stor < 1) {
-		/*
-		 * FIXME In the future, initiate net_close here if net was up.
-		 */
-		return;
+	num_up = 0;
+	list_for_each_entry(stn, &tabled_srv.all_stor, all_link) {
+		if (stor_node_check(stn) == 0) {
+			if (debugging)
+				applog(LOG_DEBUG, " NID %u is up", stn->id);
+			num_up++;
+		}
 	}
+	if (num_up < 1) {
+		applog(LOG_INFO, "No active storage node(s), waiting");
+		return num_up;
+	}
+	if (debugging)
+		applog(LOG_DEBUG, "Active storage node(s): %d", stn->id);
 
 	/*
 	 * We initiate operations even if there's no redundancy in order
@@ -1412,6 +1424,7 @@ void stor_update_cb(void)
 		 */
 		;
 	}
+	return num_up;
 }
 
 static int net_open(void)
@@ -1651,8 +1664,6 @@ int main (int argc, char *argv[])
 
 	event_init();
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
-
-	stor_init();
 
 	/* set up server networking */
 	rc = net_open();

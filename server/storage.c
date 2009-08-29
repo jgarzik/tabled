@@ -379,31 +379,13 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 	return;
 }
 
-/*
- * Wait for chunkd instances to come up, in case we start simultaneously
- * from a "make check" or a parallel boot script on the same computer,
- * of if a datacenter is being brought up.
- */
-void stor_init(void)
+/* Return 0 if the node checks out ok */
+int stor_node_check(struct storage_node *stn)
 {
 	struct st_client *stc;
-	struct storage_node *stn;
 	char host[41];
 	char port[6];
 	int rc;
-
-	/*
-	 * Just grab the first one for now, until the redundancy gets done.
-	 */
-	if (list_empty(&tabled_srv.all_stor)) {
-		/*
-		 * Maybe we should wait until more of them come online?
-		 */
-		applog(LOG_ERR, "No chunkd nodes, impossible to continue");
-		exit(1);
-	}
-	stn = list_entry(tabled_srv.all_stor.next,
-			 struct storage_node, all_link);
 
 	rc = stor_new_stc(stn, &stc);
 	if (rc < 0) {
@@ -418,16 +400,13 @@ void stor_init(void)
 			} else {
 				applog(LOG_INFO, "Error connecting to chunkd");
 			}
-			exit(1);
+		} else {
+			applog(LOG_INFO, "Error %d connecting to chunkd", rc);
 		}
-		applog(LOG_INFO, "Error connecting to chunkd, retrying");
-
-		/*
-		 * Logged the condition, now start looping silently.
-		 */
-		while (stor_new_stc(stn, &stc) < 0) sleep(3);
+		return -1;
 	}
 
 	stc_free(stc);
+	return 0;
 }
 

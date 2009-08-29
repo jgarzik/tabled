@@ -80,9 +80,11 @@ int main()
 	for (;;) {
 		/*
  		 * Vote in DB4 replication takes about 12-13s.
- 		 */
-		if (time(NULL) >= start_time + 20) {
-			fprintf(stderr, "server is not up after 20 s\n");
+		 * In addition we may have retries when tabled polls for
+		 * Chunk daemons to come up. On busy boxes we may miss 20s.
+		 */
+		if (time(NULL) >= start_time + 25) {
+			fprintf(stderr, "server is not up after 25 s\n");
 			exit(1);
 		}
 

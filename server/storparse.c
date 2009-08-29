@@ -390,7 +390,6 @@ void stor_parse(char *fname, const char *text, size_t len)
 		applog(LOG_DEBUG, "Adding NID %u host %s port %s",
 		       ctx.nid, ctx.stor_ok_host, ctx.stor_ok_port);
 	stor_add_node(ctx.nid, ctx.stor_ok_host, ctx.stor_ok_port, &ctx.loc);
-	stor_update_cb();
 
 out_free_all:
 	free(ctx.text);
