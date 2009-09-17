@@ -310,15 +310,23 @@ bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 	return true;
 }
 
-void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
-		   struct geo *locp)
+static struct storage_node *stor_node_by_nid(uint32_t nid)
+{
+	struct storage_node *sn;
+
+	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
+		if (sn->id == nid)
+			return sn;
+	}
+	return NULL;
+}
+
+static int stor_add_node_addr(struct storage_node *sn,
+			      const char *hostname, const char *portstr)
 {
 	struct addrinfo hints;
 	struct addrinfo *res, *res0;
-	struct storage_node *sn;
 	int rc;
-
-	/* XXX FIXME search all_stor for dup NIDs */
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = PF_UNSPEC;
@@ -328,7 +336,7 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 	if (rc) {
 		applog(LOG_WARNING, "getaddrinfo(%s:%s) failed: %s",
 		       hostname, portstr, gai_strerror(rc));
-		return;
+		return -1;
 	}
 
 	for (res = res0; res; res = res->ai_next) {
@@ -338,24 +346,9 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 		if (res->ai_addrlen > ADDRSIZE)		/* should not happen */
 			continue;
 
-		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
-			applog(LOG_WARNING, "No core (%ld)",
-			       (long) sizeof(struct storage_node));
-			break;
-		}
-		memset(sn, 0, sizeof(struct storage_node));
-
-		sn->id = nid;
-
 		memcpy(&sn->addr, res->ai_addr, res->ai_addrlen);
 		sn->addr_af = res->ai_family;
 		sn->alen = res->ai_addrlen;
-
-		if ((sn->hostname = strdup(hostname)) == NULL) {
-			applog(LOG_WARNING, "No core");
-			free(sn);
-			break;
-		}
 
 		if (debugging) {
 			char nhost[41];
@@ -371,12 +364,49 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 			}
 		}
 
-		list_add(&sn->all_link, &tabled_srv.all_stor);
-		tabled_srv.num_stor++;
+		/* Use just the first address for now. */
+		freeaddrinfo(res0);
+		return 0;
 	}
 
 	freeaddrinfo(res0);
-	return;
+
+	applog(LOG_WARNING, "No useful addresses for host %s port %s",
+	       hostname, portstr);
+	return -1;
+}
+
+void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
+		   struct geo *locp)
+{
+	struct storage_node *sn;
+
+	sn = stor_node_by_nid(nid);
+	if (sn) {
+		stor_add_node_addr(sn, hostname, portstr);
+	} else {
+		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
+			applog(LOG_WARNING, "No core (%ld)",
+			       (long) sizeof(struct storage_node));
+			return;
+		}
+		memset(sn, 0, sizeof(struct storage_node));
+		sn->id = nid;
+
+		if ((sn->hostname = strdup(hostname)) == NULL) {
+			applog(LOG_WARNING, "No core");
+			free(sn);
+			return;
+		}
+
+		if (stor_add_node_addr(sn, hostname, portstr)) {
+			free(sn);
+			return;
+		}
+
+		list_add(&sn->all_link, &tabled_srv.all_stor);
+		tabled_srv.num_stor++;
+	}
 }
 
 /* Return 0 if the node checks out ok */
