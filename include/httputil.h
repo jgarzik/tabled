@@ -101,6 +101,9 @@ extern struct uri *uri_parse(struct uri *uri_dest, char *uri_src_text);
 extern int field_unescape(char *s, int s_len);
 extern char* field_escape (char *signed_str, unsigned char mask);
 
+/* readport.c */
+extern int tb_readport(const char *fname, char *buf, size_t len);
+
 static inline bool http11(struct http_req *req)
 {
 	if (req->major > 1)

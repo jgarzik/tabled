@@ -35,4 +35,6 @@ basic_bucket_LDADD	= $(TESTLDADD)
 basic_object_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 
+wait_for_listen_LDADD	= ../lib/libhttputil.a
+
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <ctype.h>
+#include <cldc.h>
 #include "tabled.h"
 
 struct config_context {
@@ -28,6 +29,7 @@ struct config_context {
 	bool		in_cld;
 	unsigned short	cld_port;
 	char		*cld_host;
+	char		*cld_port_file;
 };
 
 static void cfg_elm_start (GMarkupParseContext *context,
@@ -61,6 +63,46 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			applog(LOG_ERR, "Nested CLD in configuration");
 		}
 	}
+}
+
+static void cfg_elm_end_listen(struct config_context *cc)
+{
+	if (cc->text) {
+		applog(LOG_WARNING, "cfgfile: Extra text '%s' in Listen",
+		       cc->text);
+		free(cc->text);
+		cc->text = NULL;
+		return;
+	}
+
+	if (cc->tmp_listen.port && cc->tmp_listen.port_file) {
+		applog(LOG_ERR, "cfgfile: Listen with both Port and PortFile");
+		goto err;
+	}
+
+	if (!cc->tmp_listen.port && !cc->tmp_listen.port_file) {
+		applog(LOG_ERR, "cfgfile: Listen with no Port or PortFile");
+		goto err;
+	}
+
+	if (tabled_srv.port) {
+		free(tabled_srv.port);
+		tabled_srv.port = NULL;
+	}
+	if (tabled_srv.port_file) {
+		free(tabled_srv.port_file);
+		tabled_srv.port_file = NULL;
+	}
+
+	tabled_srv.port = cc->tmp_listen.port;
+	tabled_srv.port_file = cc->tmp_listen.port_file;
+	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
+	return;
+
+ err:
+	free(cc->tmp_listen.port);
+	free(cc->tmp_listen.port_file);
+	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
 }
 
 static void cfg_elm_end_storage(struct config_context *cc)
@@ -115,9 +157,28 @@ static void cfg_elm_end_cld(struct config_context *cc)
 		applog(LOG_WARNING, "No host for CLD element");
 		goto end;
 	}
-	if (!cc->cld_port) {
-		applog(LOG_WARNING, "No port for CLD element");
+	if (!cc->cld_port && !cc->cld_port_file) {
+		applog(LOG_WARNING, "No Port nor PortFile for CLD element");
 		goto end;
+	}
+
+	/*
+	 * Waiting here is disadvantageous, because it defeats testing
+	 * of bootstrap robustness for Chunk as a client of CLD.
+	 * But it's the most direct way to give us variable ports.
+	 * Also, no mysterious sleep commands in start-daemon script.
+	 */
+	if (cc->cld_port_file) {
+		int port;
+		if ((port = cld_readport(cc->cld_port_file)) <= 0) {
+			applog(LOG_INFO, "Waiting for CLD PortFile %s",
+			       cc->cld_port_file);
+			sleep(2);
+			while ((port = cld_readport(cc->cld_port_file)) <= 0)
+				sleep(3);
+			applog(LOG_INFO, "Using CLD port %u", port);
+		}
+		cc->cld_port = port;
 	}
 
 	cldu_add_host(cc->cld_host, cc->cld_port);
@@ -186,22 +247,8 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 
 	else if (!strcmp(element_name, "Listen")) {
+		cfg_elm_end_listen(cc);
 		cc->in_listen = false;
-
-		if (!cc->tmp_listen.port) {
-			applog(LOG_WARNING, "TCP port not specified in Listen");
-			free(tabled_srv.port);
-			tabled_srv.port = NULL;
-			return;
-		}
-
-		if (tabled_srv.port) {
-			free(tabled_srv.port);
-			tabled_srv.port = NULL;
-		}
-
-		tabled_srv.port = cc->tmp_listen.port;
-		cc->tmp_listen.port = NULL;
 	}
 
 	else if (!strcmp(element_name, "StorageNode")) {
@@ -277,6 +324,26 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		} else {
 			applog(LOG_WARNING, "Host element not in StorageNode");
 		}
+	}
+
+	else if (!strcmp(element_name, "PortFile")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "PortFile element empty");
+			return;
+		}
+
+		if (cc->in_listen) {
+			free(cc->tmp_listen.port_file);
+			cc->tmp_listen.port_file = cc->text;
+		} else if (cc->in_cld) {
+			free(cc->cld_port_file);
+			cc->cld_port_file = cc->text;
+		} else {
+			applog(LOG_WARNING,
+			       "PortFile element not in Listen or CLD");
+			free(cc->text);
+		}
+		cc->text = NULL;
 	}
 
 	else if (!strcmp(element_name, "ChunkUser") && cc->text) {

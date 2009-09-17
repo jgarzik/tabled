@@ -199,6 +199,7 @@ struct listen_cfg {
 	/* bool			encrypt; */
 	/* char			*host; */
 	char			*port;
+	char			*port_file;
 };
 
 struct server {
@@ -210,6 +211,7 @@ struct server {
 	char			*tdb_dir;	/* TDB metadata database dir */
 	char			*pid_file;	/* PID file */
 	char			*port;		/* bind port */
+	char			*port_file;
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
 	unsigned short		rep_port;	/* db4 replication port */

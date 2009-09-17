@@ -4,7 +4,7 @@ INCLUDES		= -I$(top_srcdir)/include	\
 
 noinst_LIBRARIES	= libhttputil.a libtdb.a
 
-libhttputil_a_SOURCES	= httputil.c uri.c
+libhttputil_a_SOURCES	= httputil.c uri.c readport.c
 
 libtdb_a_SOURCES	= tdb.c
 

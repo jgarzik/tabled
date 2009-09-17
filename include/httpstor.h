@@ -27,6 +27,7 @@
 
 struct httpstor_client {
 	CURL		*curl;
+	char		*acc;
 	char		*host;
 	char		*user;
 	char		*key;
@@ -71,8 +72,8 @@ extern void httpstor_free_bucket(struct httpstor_bucket *buck);
 extern void httpstor_free_object(struct httpstor_object *obj);
 extern void httpstor_free_keylist(struct httpstor_keylist *keylist);
 
-extern struct httpstor_client *httpstor_new(const char *service_host,
-				 const char *user, const char *secret_key);
+extern struct httpstor_client *httpstor_new(const char *service_acc,
+	const char *service_host, const char *user, const char *secret_key);
 
 extern bool httpstor_add_bucket(struct httpstor_client *httpstor, const char *name);
 extern bool httpstor_del_bucket(struct httpstor_client *httpstor, const char *name);

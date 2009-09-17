@@ -1427,7 +1427,131 @@ int stor_update_cb(void)
 	return num_up;
 }
 
-static int net_open(void)
+static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
+			   int addr_len, void *addr_ptr)
+{
+	struct server_socket *sock;
+	int fd, on;
+	int rc;
+
+	fd = socket(addr_fam, sock_type, sock_prot);
+	if (fd < 0) {
+		rc = errno;
+		applogerr("tcp socket");
+		return -rc;
+	}
+
+	on = 1;
+	if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
+		rc = errno;
+		applogerr("setsockopt(SO_REUSEADDR)");
+		close(fd);
+		return -rc;
+	}
+
+	if (bind(fd, addr_ptr, addr_len) < 0) {
+		rc = errno;
+		applogerr("tcp bind");
+		close(fd);
+		return -rc;
+	}
+
+	rc = fsetflags("tcp server", fd, O_NONBLOCK);
+	if (rc) {
+		close(fd);
+		return rc;
+	}
+
+	sock = calloc(1, sizeof(*sock));
+	if (!sock) {
+		close(fd);
+		return -ENOMEM;
+	}
+
+	sock->fd = fd;
+
+	event_set(&sock->ev, fd, EV_READ | EV_PERSIST, tcp_srv_event, sock);
+
+	tabled_srv.sockets = g_list_append(tabled_srv.sockets, sock);
+	return fd;
+}
+
+/*
+ * This, annoyingly, has to have a side effect: it fills out tabled_srv.port
+ * so that we can later export it into CLD.
+ */
+static int net_open_any(char *portfile)
+{
+	struct sockaddr_in addr4;
+	struct sockaddr_in6 addr6;
+	FILE *portf;
+	int fd4, fd6;
+	socklen_t addr_len;
+	unsigned short port;
+	int rc;
+
+	port = 0;
+
+	/* Thanks to Linux, IPv6 must be bound first. */
+	memset(&addr6, 0, sizeof(addr6));
+	addr6.sin6_family = AF_INET6;
+	memcpy(&addr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr));
+	fd6 = net_open_socket(AF_INET6, SOCK_STREAM, 0, sizeof(addr6), &addr6);
+
+	if (fd6 >= 0) {
+		addr_len = sizeof(addr6);
+		if (getsockname(fd6, &addr6, &addr_len) != 0) {
+			rc = errno;
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			return -rc;
+		}
+		port = ntohs(addr6.sin6_port);
+	}
+
+	memset(&addr4, 0, sizeof(addr4));
+	addr4.sin_family = AF_INET;
+	addr4.sin_addr.s_addr = htonl(INADDR_ANY);
+	/* If IPv6 worked, we must use the same port number for IPv4 */
+	if (port)
+		addr4.sin_port = port;
+	fd4 = net_open_socket(AF_INET, SOCK_STREAM, 0, sizeof(addr4), &addr4);
+
+	if (!port) {
+		if (fd4 < 0)
+			return fd4;
+
+		addr_len = sizeof(addr4);
+		if (getsockname(fd4, &addr4, &addr_len) != 0) {
+			rc = errno;
+			applog(LOG_ERR, "getsockname failed: %s", strerror(rc));
+			return -rc;
+		}
+		port = ntohs(addr4.sin_port);
+	}
+
+	applog(LOG_INFO, "Listening on port %u file %s", port, portfile);
+
+	rc = asprintf(&tabled_srv.port, "%u", port);
+	if (rc < 0) {
+		applog(LOG_ERR, "OOM");
+		return -ENOMEM;
+	}
+
+	portf = fopen(portfile, "w");
+	if (portf == NULL) {
+		rc = errno;
+		applog(LOG_INFO, "Cannot create port file %s: %s",
+		       portfile, strerror(rc));
+		return -rc;
+	}
+	fprintf(portf, "%s:%u\n", tabled_srv.ourhost, port);
+	fclose(portf);
+
+	tabled_srv.state_net = ST_NET_OPEN;
+	return 0;
+}
+
+static int net_open_known(const char *portstr)
 {
 	int ipv6_found;
 	int rc;
@@ -1438,10 +1562,10 @@ static int net_open(void)
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 
-	rc = getaddrinfo(NULL, tabled_srv.port, &hints, &res0);
+	rc = getaddrinfo(NULL, portstr, &hints, &res0);
 	if (rc) {
 		applog(LOG_ERR, "getaddrinfo(*:%s) failed: %s",
-		       tabled_srv.port, gai_strerror(rc));
+		       portstr, gai_strerror(rc));
 		rc = -EINVAL;
 		goto err_addr;
 	}
@@ -1463,50 +1587,16 @@ static int net_open(void)
 	}
 
 	for (res = res0; res; res = res->ai_next) {
-		struct server_socket *sock;
-		int fd, on;
 		char listen_host[65], listen_serv[65];
 
 		if (ipv6_found && res->ai_family == PF_INET)
 			continue;
 
-		fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-		if (fd < 0) {
-			applogerr("tcp socket");
-			return -errno;
-		}
-
-		on = 1;
-		if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on,
-			       sizeof(on)) < 0) {
-			applogerr("setsockopt(SO_REUSEADDR)");
-			rc = -errno;
+		rc = net_open_socket(res->ai_family, res->ai_socktype,
+				     res->ai_protocol, 
+				     res->ai_addrlen, res->ai_addr);
+		if (rc < 0)
 			goto err_out;
-		}
-
-		if (bind(fd, res->ai_addr, res->ai_addrlen) < 0) {
-			applogerr("tcp bind");
-			rc = -errno;
-			goto err_out;
-		}
-
-		rc = fsetflags("tcp server", fd, O_NONBLOCK);
-		if (rc)
-			goto err_out;
-
-		sock = calloc(1, sizeof(*sock));
-		if (!sock) {
-			rc = -ENOMEM;
-			goto err_out;
-		}
-
-		sock->fd = fd;
-
-		event_set(&sock->ev, fd, EV_READ | EV_PERSIST,
-			  tcp_srv_event, sock);
-
-		tabled_srv.sockets = g_list_append(tabled_srv.sockets, sock);
-
 		getnameinfo(res->ai_addr, res->ai_addrlen,
 			    listen_host, sizeof(listen_host),
 			    listen_serv, sizeof(listen_serv),
@@ -1525,6 +1615,14 @@ err_out:
 	freeaddrinfo(res0);
 err_addr:
 	return rc;
+}
+
+static int net_open(void)
+{
+	if (tabled_srv.port_file)
+		return net_open_any(tabled_srv.port_file);
+	else
+		return net_open_known(tabled_srv.port);
 }
 
 static void net_listen(void)

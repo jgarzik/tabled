@@ -21,11 +21,14 @@
 #include <string.h>
 #include <locale.h>
 #include <httpstor.h>
+#include <httputil.h>
 #include "test.h"
 
 int main(int argc, char *argv[])
 {
 	struct httpstor_client *httpstor;
+	char accbuf[80];
+	int rc;
 	bool rcb;
 	char val[] = "my first value";
 	char key[] = "my first key";
@@ -34,7 +37,10 @@ int main(int argc, char *argv[])
 
 	setlocale(LC_ALL, "C");
 
-	httpstor = httpstor_new(TEST_HOST, TEST_USER, TEST_USER_KEY);
+	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
+	OK(rc > 0);
+
+	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
 	OK(httpstor);
 
 	/* add bucket */

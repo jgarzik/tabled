@@ -42,14 +42,21 @@ void httpstor_free(struct httpstor_client *httpstor)
 {
 	if (httpstor->curl)
 		curl_easy_cleanup(httpstor->curl);
+	free(httpstor->acc);
 	free(httpstor->host);
 	free(httpstor->user);
 	free(httpstor->key);
 	free(httpstor);
 }
 
-struct httpstor_client *httpstor_new(const char *service_host,
-				 const char *user, const char *secret_key)
+/*
+ * The service accessor is a "host:port" string that gets resolved to IP
+ * address and then create a TCP connection to the server. The service host,
+ * however, is used to form the "Host: host" HTTP header. The host of the
+ * accessor should be the same on the sane installations, but whatever.
+ */
+struct httpstor_client *httpstor_new(const char *service_acc,
+	const char *service_host, const char *user, const char *secret_key)
 {
 	struct httpstor_client *httpstor;
 
@@ -57,10 +64,11 @@ struct httpstor_client *httpstor_new(const char *service_host,
 	if (!httpstor)
 		return NULL;
 
+	httpstor->acc = strdup(service_acc);
 	httpstor->host = strdup(service_host);
 	httpstor->user = strdup(user);
 	httpstor->key = strdup(secret_key);
-	if (!httpstor->host || !httpstor->user || !httpstor->key)
+	if (!httpstor->acc || !httpstor->host || !httpstor->user || !httpstor->key)
 		goto err_out;
 
 	if (curl_global_init(CURL_GLOBAL_ALL))
@@ -170,7 +178,7 @@ next:
 struct httpstor_blist *httpstor_list_buckets(struct httpstor_client *httpstor)
 {
 	struct http_req req;
-	char datestr[80], timestr[64], hmac[64], auth[128], host[80];
+	char datestr[80], timestr[64], hmac[64], auth[128], host[80], url[80];
 	struct curl_slist *headers = NULL;
 	struct httpstor_blist *blist;
 	xmlDocPtr doc;
@@ -200,10 +208,12 @@ struct httpstor_blist *httpstor_list_buckets(struct httpstor_client *httpstor)
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
 
+	snprintf(url, sizeof(url), "http://%s/", httpstor->acc);
+
 	curl_easy_reset(httpstor->curl);
 	if (httpstor->verbose)
 		curl_easy_setopt(httpstor->curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(httpstor->curl, CURLOPT_URL, "http://localhost:18080/");
+	curl_easy_setopt(httpstor->curl, CURLOPT_URL, url);
 	curl_easy_setopt(httpstor->curl, CURLOPT_HTTPHEADER, headers);
 	curl_easy_setopt(httpstor->curl, CURLOPT_ENCODING, "");
 	curl_easy_setopt(httpstor->curl, CURLOPT_FAILONERROR, 1);
@@ -312,7 +322,7 @@ static bool __httpstor_ad_bucket(struct httpstor_client *httpstor, const char *n
 
 	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
 	sprintf(host, "Host: %s", httpstor->host);
-	sprintf(url, "http://localhost:18080/%s/", name);
+	snprintf(url, sizeof(url), "http://%s/%s/", httpstor->acc, name);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -371,7 +381,7 @@ bool httpstor_get(struct httpstor_client *httpstor, const char *bucket, const ch
 
 	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
 	sprintf(host, "Host: %s", httpstor->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	snprintf(url, sizeof(url), "http://%s%s", httpstor->acc, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -450,7 +460,7 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 
 	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
 	sprintf(host, "Host: %s", httpstor->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	snprintf(url, sizeof(url), "http://%s%s", httpstor->acc, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -541,7 +551,7 @@ bool httpstor_del(struct httpstor_client *httpstor, const char *bucket, const ch
 
 	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
 	sprintf(host, "Host: %s", httpstor->host);
-	sprintf(url, "http://localhost:18080%s", orig_path);
+	snprintf(url, sizeof(url), "http://%s%s", httpstor->acc, orig_path);
 
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
@@ -748,7 +758,8 @@ struct httpstor_keylist *httpstor_keys(struct httpstor_client *httpstor, const c
 		goto err_out;
 	}
 
-	url = g_string_append(url, "http://localhost:18080");
+	url = g_string_append(url, "http://");
+	url = g_string_append(url, httpstor->acc);
 	url = g_string_append(url, orig_path);
 
 	if (prefix)

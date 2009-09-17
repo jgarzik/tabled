@@ -27,6 +27,8 @@
 #define TEST_USER "testuser"
 #define TEST_USER_KEY "testpw"
 
+#define TEST_FILE_TB  "tabled.acc"
+
 #define OK(expr)				\
 	do {					\
 		if (!(expr)) {			\

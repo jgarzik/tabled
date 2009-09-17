@@ -19,6 +19,8 @@ killpid () {
 	return 1
 }
 
+rm -f cld.port tabled.acc
+
 ret=0
 
 if [ ! -f tabled.pid ]

@@ -11,6 +11,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <httputil.h>
+#include "test.h"
 
 #define ADDRSIZE	24	/* Enough for IPv6, including port. */
 
@@ -62,17 +64,43 @@ int main()
 {
 	struct server_node snode, *sn = &snode;
 	time_t start_time;
+	const static char accname[] = TEST_FILE_TB;
+	char accbuf[80];
+	char *s;
+	int cnt;
 	int sfd;
 	int rc;
 
-	/*
-	 * We hardcode host and port because we don't know an easy way
-	 * to pass parameters to tests.
-	 */
+	cnt = 0;
+	for (;;) {
+		rc = tb_readport(accname, accbuf, sizeof(accbuf));
+		if (rc > 0)
+			break;
+		if (++cnt >= 5) {	/* should not take long */
+			if (rc == 0) {
+				fprintf(stderr, "Nothing to read in %s\n",
+					accname);
+				exit(1);
+			}
+			if (rc < 0) {
+				fprintf(stderr, "Failed to read %s: %s\n",
+					accname, strerror(-rc));
+				exit(1);
+			}
+		}
+		sleep(1);
+	}
+
+	s = strchr(accbuf, ':');
+	if (!s)
+		s = "80";
+	else
+		*s++ = 0;
+
 	memset(sn, 0, sizeof(struct server_node));
-	if (node_resolve(sn, "localhost", "18080") != 0) {
+	if (node_resolve(sn, accbuf, s) != 0) {
 		fprintf(stderr,
-			"Unable to resolve host localhost port 18080\n");
+			"Unable to resolve host %s port %s\n", accbuf, s);
 		exit(1);
 	}
 
