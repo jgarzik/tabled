@@ -198,7 +198,6 @@ static void cldu_event(int fd, short events, void *userdata)
 #if 0
 		if (rc == -ECONNREFUSED) {	/* ICMP tells us */
 			int newactive;
-			/* P3 */ applog(LOG_INFO, "Restarting session");
 			// evtimer_del(&sp->tm);
 			cldc_kill_sess(sp->lib->sess);
 			sp->lib->sess = NULL;

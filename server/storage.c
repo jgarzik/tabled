@@ -48,9 +48,18 @@ static void stor_read_event(int fd, short events, void *userdata)
 {
 	struct open_chunk *cep = userdata;
 
-	cep->r_armed = 0;
+	cep->r_armed = 0;		/* no EV_PERSIST */
 	if (cep->rcb)
 		(*cep->rcb)(cep);
+}
+
+static void stor_write_event(int fd, short events, void *userdata)
+{
+	struct open_chunk *cep = userdata;
+
+	cep->w_armed = 0;		/* no EV_PERSIST */
+	if (cep->wcb)
+		(*cep->wcb)(cep);
 }
 
 /*
@@ -63,11 +72,8 @@ int stor_open(struct open_chunk *cep, struct storage_node *stn)
 	if (cep->stc)
 		return 0;
 
-	if ((rc = stor_new_stc(stn, &cep->stc)) < 0) {
-		if (debugging)
-			applog(LOG_INFO, "Failed to open Chunk (%d)\n", rc);
+	if ((rc = stor_new_stc(stn, &cep->stc)) < 0)
 		return rc;
-	}
 
 	cep->node = stn;
 	stn->nchu++;
@@ -77,7 +83,8 @@ int stor_open(struct open_chunk *cep, struct storage_node *stn)
 	return 0;
 }
 
-int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size)
+int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
+		   uint64_t key, uint64_t size)
 {
 	char stckey[STOR_KEY_SLEN+1];
 
@@ -96,6 +103,9 @@ int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size)
 	}
 	cep->wtogo = size;
 	cep->wkey = key;
+	cep->wcb = cb;
+	event_set(&cep->wevt, cep->wfd, EV_WRITE, stor_write_event, cep);
+
 	if (debugging)
 		applog(LOG_INFO, "stor put %s new for %lld",
 		       stckey, (long long) size);
@@ -157,6 +167,11 @@ void stor_close(struct open_chunk *cep)
 		cep->r_armed = 0;
 	}
 	cep->rsize = 0;
+
+	if (cep->w_armed) {
+		event_del(&cep->wevt);
+		cep->w_armed = false;
+	}
 }
 
 /*
@@ -176,7 +191,7 @@ void stor_abort(struct open_chunk *cep)
 		return;
 
 	if (debugging)
-		applog(LOG_INFO, "stor aborting\n");
+		applog(LOG_INFO, "stor aborting");
 
 	stc_free(cep->stc);
 	cep->stc = NULL;
@@ -187,7 +202,8 @@ void stor_abort(struct open_chunk *cep)
 		cep->node = NULL;
 
 		if (debugging)
-			applog(LOG_INFO, "Failed to reopen Chunk (%d)\n", rc);
+			applog(LOG_INFO, "Failed to reopen Chunk nid %u (%d)",
+			       cep->node->id, rc);
 		return;
 	}
 
@@ -202,10 +218,17 @@ void stor_abort(struct open_chunk *cep)
 		cep->r_armed = 0;
 	}
 	cep->rsize = 0;
+
+	if (cep->w_armed) {
+		event_del(&cep->wevt);
+		cep->w_armed = false;
+	}
 }
 
 ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 {
+	int rc;
+
 	if (len > cep->wtogo) {
 		applog(LOG_ERR, "Put size %ld remaining %ld",
 		       (long) len, (long) cep->wtogo);
@@ -217,15 +240,24 @@ ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 		cep->wtogo -= len;
 	}
 
-	if (cep->stc)
-		return stc_put_send(cep->stc, data, len);
-	return -EPIPE;
+	if (!cep->stc)
+		return -EPIPE;
+	rc = stc_put_send(cep->stc, data, len);
+	if (rc == 0 && !cep->w_armed) {
+		event_add(&cep->wevt, NULL);
+		cep->w_armed = true;
+	}
+	return rc;
 }
 
 bool stor_put_end(struct open_chunk *cep)
 {
 	if (!cep->stc)
 		return true;
+	if (cep->w_armed) {
+		event_del(&cep->wevt);
+		cep->w_armed = false;
+	}
 	return stc_put_sync(cep->stc);
 }
 

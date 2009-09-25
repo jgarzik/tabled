@@ -132,17 +132,17 @@ static int object_unlink(struct db_obj_ent *obj)
 	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE)
 		return 0;
 	/*
-	 * FIXME Iterate over all of avec[] when redundancy is added;
+	 * FIXME Iterate over all of NIDs when redundancy is added;
 	 * use nid to locate node in all_stor.
 	 */
-	addr = &obj->d.avec[0];
+	addr = &obj->d.a;
 
 	if (list_empty(&tabled_srv.all_stor))
 		return -EIO;
 	stnode = list_entry(tabled_srv.all_stor.next,
 			    struct storage_node, all_link);
 
-	return stor_obj_del(stnode, addr->oid);
+	return stor_obj_del(stnode, GUINT64_FROM_LE(addr->oid));
 }
 
 bool object_del(struct client *cli, const char *user,
@@ -233,13 +233,25 @@ err_out:
 	return cli_err(cli, err);
 }
 
+static void cli_ochunk_free(struct list_head *olist)
+{
+	struct open_chunk *ochunk;
+
+	while (!list_empty(olist)) {
+		ochunk = list_entry(olist->next, struct open_chunk, link);
+		list_del(&ochunk->link);
+		stor_abort(ochunk);
+		stor_close(ochunk);
+		free(ochunk);
+	}
+}
+
 void cli_out_end(struct client *cli)
 {
 	if (!cli)
 		return;
 
-	stor_abort(&cli->out_ce);
-	stor_close(&cli->out_ce);
+	cli_ochunk_free(&cli->out_ch);
 
 	free(cli->out_bucket);
 	free(cli->out_key);
@@ -248,6 +260,9 @@ void cli_out_end(struct client *cli)
 	cli->out_user =
 	cli->out_bucket =
 	cli->out_key = NULL;
+
+	free(cli->out_buf);
+	cli->out_buf = NULL;
 }
 
 static const char *copy_headers[] = {
@@ -293,6 +308,8 @@ static bool object_put_end(struct client *cli)
 	char md5[33], timestr[64];
 	char *type, *hdr;
 	int rc, i;
+	struct list_head *pos, *tmp;
+	int nok;
 	enum errcode err = InternalError;
 	struct db_obj_ent *obj;
 	struct db_obj_key *obj_key;
@@ -314,22 +331,32 @@ static bool object_put_end(struct client *cli)
 	else
 		cli->state = evt_dispose;
 
-	if (!stor_put_end(&cli->out_ce)) {
-		applog(LOG_ERR, "Chunk sync failed");
+	nok = 0;
+	list_for_each_safe(pos, tmp, &cli->out_ch) {
+		struct open_chunk *ochunk;
+
+		ochunk = list_entry(pos, struct open_chunk, link);
+		if (!stor_put_end(ochunk)) {
+			applog(LOG_ERR, "Chunk sync failed");
+			/* stor_abort(ochunk); */
+		} else {
+			if (debugging) {
+				/* FIXME how do we test for inline objects here? */
+				if (!stor_obj_test(ochunk, cli->out_objid))
+					applog(LOG_ERR, "Stat (%llX) failed",
+					       (unsigned long long) cli->out_objid);
+				else
+					applog(LOG_DEBUG, "STORED %llX, size -",
+					       (unsigned long long) cli->out_objid);
+			}
+			nok++;
+		}
+		stor_close(ochunk);
+		list_del(&ochunk->link);
+		free(ochunk);
+	}
+	if (!nok)
 		goto err_out;
-	}
-
-	if (debugging) {
-		/* FIXME how do we test for inline objects here? */
-		if (!stor_obj_test(&cli->out_ce, cli->out_objid))
-			applog(LOG_ERR, "Stat (%llX) failed",
-			       (unsigned long long) cli->out_objid);
-		else
-			applog(LOG_DEBUG, "STORED %llX, size -",
-			       (unsigned long long) cli->out_objid);
-	}
-
-	stor_close(&cli->out_ce);
 
 	MD5_Final(md, &cli->out_md5);
 
@@ -408,8 +435,8 @@ static bool object_put_end(struct client *cli)
 	/* encode object header */
 	obj->size = cli->out_size;
 	obj->mtime = (uint64_t)time(NULL) * 1000000;
-	obj->d.avec[0].nid = 1;		/* FIXME */
-	obj->d.avec[0].oid = cli->out_objid;
+	obj->d.a.nidv[0] = GUINT32_TO_LE(1);		/* FIXME */
+	obj->d.a.oid = GUINT64_TO_LE(cli->out_objid);
 	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
 	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
 	strncpy(obj->md5, md5, sizeof(obj->md5));
@@ -455,7 +482,7 @@ static bool object_put_end(struct client *cli)
 	 */
 	if (delobj && object_unlink(&oldobj) < 0) {
 		applog(LOG_ERR, "object data(%llX) orphaned",
-		       (unsigned long long) oldobj.d.avec[0].oid);
+		       (unsigned long long) GUINT64_FROM_LE(oldobj.d.a.oid));
 	}
 
 	free(cli->out_bucket);
@@ -499,16 +526,100 @@ err_out:
 	return cli_err(cli, err);
 }
 
+static void object_put_event(struct open_chunk *ochunk)
+{
+	struct client *cli = ochunk->cli;
+	ssize_t bytes;
+
+	if (ochunk->wcnt == 0) {
+		if (debugging)
+			applog(LOG_DEBUG, "spurious write notify");
+		return;
+	}
+
+	bytes = stor_put_buf(ochunk, cli->out_buf, cli->out_bcnt);
+	if (bytes < 0) {
+		if (debugging)
+			applog(LOG_DEBUG, "write(2) error: %s",
+			       strerror(-bytes));
+		if (!cli->out_nput) {
+			applog(LOG_INFO, "out_nput imbalance on error");
+		} else {
+			--cli->out_nput;
+		}
+		if (!cli->out_nput) {
+			if (!cli->ev_active) {
+				event_add(&cli->ev, NULL);
+				cli->ev_active = true;
+			}
+		}
+		list_del(&ochunk->link);
+		stor_abort(ochunk);
+		stor_close(ochunk);
+		free(ochunk);
+		return;
+	}
+	ochunk->wcnt -= bytes;
+
+	if (ochunk->wcnt == 0) {
+		if (!cli->out_nput) {
+			applog(LOG_INFO, "out_nput imbalance");
+		} else {
+			--cli->out_nput;
+		}
+
+		if (!cli->out_nput) {
+			if (!cli->ev_active) {
+				event_add(&cli->ev, NULL);
+				cli->ev_active = true;
+			}
+		}
+	}
+}
+
+static int object_put_buf(struct client *cli, struct open_chunk *ochunk,
+			  char *buf, size_t len)
+{
+	ssize_t bytes;
+
+	ochunk->wcnt = len;
+
+	bytes = stor_put_buf(ochunk, buf, len);
+	if (bytes < 0) {
+		if (debugging) {
+			applog(LOG_ERR, "write(2) error in HTTP data-in: %s",
+			       strerror(-bytes));
+		}
+		return -EIO;
+	}
+	ochunk->wcnt -= bytes;
+
+	if (ochunk->wcnt != 0)
+		cli->out_nput++;
+	return 0;
+}
+
 bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 {
-	char buf[4096];
-	char *p = buf;
-	ssize_t avail, bytes;
+	ssize_t avail;
+	struct open_chunk *ochunk;
+	struct list_head *pos, *tmp;
+	int nok;
 
 	if (!cli->out_len)
 		return object_put_end(cli);
 
-	avail = read(cli->fd, buf, MIN(cli->out_len, sizeof(buf)));
+	if (cli->out_nput) {
+		if (cli->ev_active) {
+			event_del(&cli->ev);
+			cli->ev_active = false;
+		} else {
+			/* P3 temporary */ applog(LOG_INFO, "spurious ev");
+		}
+		return false;
+	}
+
+	avail = read(cli->fd, cli->out_buf, MIN(cli->out_len, CLI_DATA_BUF_SZ));
 	if (avail <= 0) {
 		if ((avail < 0) && (errno == EAGAIN))
 			return false;
@@ -521,27 +632,120 @@ bool cli_evt_http_data_in(struct client *cli, unsigned int events)
 			applog(LOG_ERR, "object read(2) unexpected EOF");
 		return cli_err(cli, InternalError);
 	}
+	cli->out_bcnt = avail;
 
-	while (avail > 0) {
-		bytes = stor_put_buf(&cli->out_ce, p, avail);
-		if (bytes < 0) {
-			cli_out_end(cli);
-			applog(LOG_ERR, "write(2) error in HTTP data-in: %s",
-				strerror(errno));
-			return cli_err(cli, InternalError);
+	MD5_Update(&cli->out_md5, cli->out_buf, avail);
+
+	nok = 0;
+	list_for_each_safe(pos, tmp, &cli->out_ch) {
+		ochunk = list_entry(pos, struct open_chunk, link);
+		if (object_put_buf(cli, ochunk, cli->out_buf, avail) < 0) {
+			list_del(&ochunk->link);
+			stor_abort(ochunk);
+			stor_close(ochunk);
+			free(ochunk);
+		} else {
+			nok++;
 		}
-
-		MD5_Update(&cli->out_md5, p, bytes);
-
-		cli->out_len -= bytes;
-		p += bytes;
-		avail -= bytes;
+	}
+	if (!nok) {
+		cli_out_end(cli);
+		/* if (debugging) */ /* P3 temporary */
+			applog(LOG_ERR, "data write-out error");
+		return cli_err(cli, InternalError);
 	}
 
-	if (!cli->out_len)
-		return object_put_end(cli);
+	if (!cli->out_nput) {
+		cli->out_len -= avail;
+		if (!cli->out_len)
+			return object_put_end(cli);
+	} else {
+		if (cli->ev_active) {
+			event_del(&cli->ev);
+			cli->ev_active = false;
+		}
+	}
 
-	return (avail == sizeof(buf)) ? true : false;
+	return false;
+}
+
+static struct open_chunk *open_chunk1(struct storage_node *stnode,
+				     uint64_t objid, long content_len)
+{
+	struct open_chunk *ochunk;
+	int rc;
+
+	ochunk = calloc(1, sizeof(struct open_chunk));
+	if (!ochunk) {
+		applog(LOG_ERR, "OOM");
+		goto err_alloc;
+	}
+
+	rc = stor_open(ochunk, stnode);
+	if (rc != 0) {
+		applog(LOG_WARNING, "Cannot open output chunk, nid %u (%d)",
+		       stnode->id, rc);
+		goto err_open;
+	}
+
+	rc = stor_put_start(ochunk, object_put_event, objid, content_len);
+	if (rc != 0) {
+		applog(LOG_WARNING, "Cannot start putting for %llX (%d)",
+		       (unsigned long long) objid, rc);
+		goto err_start;
+	}
+
+	return ochunk;
+
+ err_start:
+	stor_close(ochunk);
+ err_open:
+	free(ochunk);
+ err_alloc:
+	return NULL;
+}
+
+/*
+ * Open up to MAXWAY chunks from slist, pre-start writing on all of them,
+ * and put them on the olist.
+ *
+ * This is a very limited implementation for now (FIXME).
+ *  - we do not do any kind of sensible selection, like the least full node,
+ *    just first-forward
+ *  - we ignore all redundancy issues and only return an error if no nodes
+ *    were opened
+ */
+static int open_chunks(struct list_head *olist, struct list_head *slist,
+		       struct client *cli, uint64_t objid, long content_len)
+{
+	struct storage_node *stnode;
+	struct open_chunk *ochunk;
+	int n;
+
+	n = 0;
+	list_for_each_entry(stnode, slist, all_link) {
+		if (!stnode->up)
+			continue;
+		ochunk = open_chunk1(stnode, objid, content_len);
+		if (!ochunk)
+			continue;
+		ochunk->cli = cli;
+		list_add(&ochunk->link, olist);
+		n++;
+	}
+	if (n == 0) {
+		applog(LOG_ERR, "No chunk nodes");
+		goto err;
+	}
+	return 0;
+
+err:
+	/*
+	 * cli_free does the same cleanup for us, but let's be good for KISS
+	 * and possible client reuse.
+	 */
+	cli_ochunk_free(olist);
+	return -1;
 }
 
 bool object_put_body(struct client *cli, const char *user, const char *bucket,
@@ -549,34 +753,22 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 {
 	long avail;
 	uint64_t objid;
-	struct storage_node *stnode;
 	int rc;
 
 	if (!user || !has_access(user, bucket, NULL, "WRITE"))
 		return cli_err(cli, AccessDenied);
 
+	if (!cli->out_buf && !(cli->out_buf = malloc(CLI_DATA_BUF_SZ))) {
+		applog(LOG_ERR, "OOM (%ld)", (long)CLI_DATA_BUF_SZ);
+		return cli_err(cli, InternalError);
+	}
+
 	objid = objid_next();
 
-	/* FIXME picking the first node until the redundancy is implemented */
-	if (list_empty(&tabled_srv.all_stor)) {
-		applog(LOG_ERR, "No chunk nodes");
+	rc = open_chunks(&cli->out_ch, &tabled_srv.all_stor,
+			 cli, objid, content_len);
+	if (rc)
 		return cli_err(cli, InternalError);
-	}
-	stnode = list_entry(tabled_srv.all_stor.next,
-			    struct storage_node, all_link);
-
-	rc = stor_open(&cli->out_ce, stnode);
-	if (rc != 0) {
-		applog(LOG_WARNING, "Cannot open chunk (%d)", rc);
-		return cli_err(cli, InternalError);
-	}
-
-	rc = stor_put_start(&cli->out_ce, objid, content_len);
-	if (rc != 0) {
-		applog(LOG_WARNING, "Cannot start putting for %llX (%d)",
-		       (unsigned long long) objid, rc);
-		return cli_err(cli, InternalError);
-	}
 
 	cli->out_bucket = strdup(bucket);
 	cli->out_key = strdup(key);
@@ -592,37 +784,55 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 	if (expect_cont) {
 		char *cont;
 
-		/* FIXME check for err */
-		asprintf(&cont, "HTTP/%d.%d 100 Continue\r\n\r\n",
-			 cli->req.major, cli->req.minor);
+		if (asprintf(&cont, "HTTP/%d.%d 100 Continue\r\n\r\n",
+			     cli->req.major, cli->req.minor) == -1) {
+			cli_out_end(cli);
+			return cli_err(cli, InternalError);
+		}
 		cli_writeq(cli, cont, strlen(cont), cli_cb_free, cont);
 		cli_write_start(cli);
 	}
 
 	avail = MIN(cli_req_avail(cli), content_len);
 	if (avail) {
-		ssize_t bytes;
+		struct list_head *pos, *tmp;
+		struct open_chunk *ochunk;
+		int nok;
 
-		while (avail > 0) {
-			bytes = stor_put_buf(&cli->out_ce, cli->req_ptr, avail);
-			if (bytes < 0) {
-				cli_out_end(cli);
-				applog(LOG_ERR, "write(2) error in object_put: %s",
-					strerror(errno));
-				return cli_err(cli, InternalError);
+		cli->out_bcnt = avail;
+
+		MD5_Update(&cli->out_md5, cli->req_ptr, avail);
+
+		nok = 0;
+		list_for_each_safe(pos, tmp, &cli->out_ch) {
+			ochunk = list_entry(pos, struct open_chunk, link);
+			if (object_put_buf(cli, ochunk, cli->req_ptr, avail) < 0) {
+				list_del(&ochunk->link);
+				stor_abort(ochunk);
+				stor_close(ochunk);
+				free(ochunk);
+			} else {
+				nok++;
 			}
-
-			MD5_Update(&cli->out_md5, cli->req_ptr, bytes);
-
-			cli->out_len -= bytes;
-			cli->req_ptr += bytes;
-			avail -= bytes;
+		}
+		if (!nok) {
+			cli_out_end(cli);
+			if (debugging)
+				applog(LOG_ERR, "data pig-out error");
+			return cli_err(cli, InternalError);
 		}
 	}
 
-	if (!cli->out_len)
-		return object_put_end(cli);
-
+	if (!cli->out_nput) {
+		cli->out_len -= avail;
+		if (!cli->out_len)
+			return object_put_end(cli);
+	} else {
+		if (cli->ev_active) {
+			event_del(&cli->ev);
+			cli->ev_active = false;
+		}
+	}
 	cli->state = evt_http_data_in;
 	return true;
 }
@@ -936,7 +1146,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		goto err_out_str;
 }
 
-	cli->in_objid = obj->d.avec[0].oid;
+	cli->in_objid = GUINT64_FROM_LE(obj->d.a.oid);
 
 	if (list_empty(&tabled_srv.all_stor)) {
 		applog(LOG_ERR, "No chunk nodes");
@@ -947,15 +1157,16 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 
 	rc = stor_open(&cli->in_ce, stnode);
 	if (rc < 0) {
-		applog(LOG_WARNING, "Cannot open chunk (%d)", rc);
+		applog(LOG_WARNING, "Cannot open input chunk, nid %u (%d)",
+		       stnode->id, rc);
 		goto err_out_str;
 	}
 
 	rc = stor_open_read(&cli->in_ce, object_get_event, cli->in_objid,
 			    &objsize);
 	if (rc < 0) {
-		applog(LOG_ERR, "open oid %llX failed (%d)",
-		       (unsigned long long) cli->in_objid, rc);
+		applog(LOG_ERR, "open oid %llX failed, nid %u (%d)",
+		       (unsigned long long) cli->in_objid, stnode->id, rc);
 		goto err_out_str;
 	}
 

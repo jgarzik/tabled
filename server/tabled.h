@@ -89,6 +89,7 @@ struct geo {
 struct storage_node {
 	struct list_head	all_link;
 	uint32_t		id;
+	bool			up;
 
 	unsigned		alen;
 	int			addr_af;
@@ -114,16 +115,22 @@ struct client_write {
 struct open_chunk {
 	struct st_client	*stc;
 	struct storage_node	*node;
+	struct list_head	link;
+	struct client		*cli;
 
 	uint64_t		wtogo;
 	uint64_t		wkey;
+	void (*wcb)(struct open_chunk *);
 	int			wfd;
+	bool			w_armed;
+	struct event		wevt;
+	size_t			wcnt;	/* in current buffer */
 
 	uint64_t		roff;
 	uint64_t		rsize;
 	void (*rcb)(struct open_chunk *);
 	int			rfd;
-	int			r_armed;
+	bool			r_armed;
 	struct event		revt;
 };
 
@@ -145,6 +152,7 @@ struct client {
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
 	int			fd;		/* socket */
+	bool			ev_active;
 	struct event		ev;
 	struct event		write_ev;
 
@@ -158,7 +166,7 @@ struct client {
 	char			*hdr_start;	/* current hdr start */
 	char			*hdr_end;	/* current hdr end (so far) */
 
-	struct open_chunk	out_ce;		/* just one for now FIXME */
+	struct list_head	out_ch;		/* open_chunk.link */
 	char			*out_bucket;
 	char			*out_key;
 	char			*out_user;
@@ -166,6 +174,9 @@ struct client {
 	long			out_len;
 	uint64_t		out_size;
 	uint64_t		out_objid;
+	char			*out_buf;
+	size_t			out_bcnt;	/* used length of out_buf */
+	int			out_nput;	/* number of users of out_buf */
 
 	struct open_chunk	in_ce;
 	unsigned char		*in_mem;
@@ -314,7 +325,9 @@ extern int stor_open_read(struct open_chunk *cep,
 			  uint64_t key, uint64_t *psz);
 extern void stor_close(struct open_chunk *cep);
 extern void stor_abort(struct open_chunk *cep);
-extern int stor_put_start(struct open_chunk *cep, uint64_t key, uint64_t size);
+extern int stor_put_start(struct open_chunk *cep,
+			  void (*cb)(struct open_chunk *),
+			  uint64_t key, uint64_t size);
 extern ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len);
 extern bool stor_put_end(struct open_chunk *cep);
 extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);

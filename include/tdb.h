@@ -30,8 +30,8 @@
 #define DB_OBJ_INLINE        0x1
 
 struct db_obj_addr {
-	uint32_t	nid;			/* 0 == absent */
-	uint64_t	oid;
+	uint64_t oid;
+	uint32_t nidv[MAXWAY];			/* 0 == absent */
 };
 
 struct db_obj_key {
@@ -41,16 +41,16 @@ struct db_obj_key {
 
 struct db_obj_ent {
 	uint32_t	flags;
+	uint32_t	n_str;			/* # attached string pairs */
 	uint64_t	size;
 	uint64_t	mtime;		/* UNIX time, but in microseconds */
 	union {
-		struct db_obj_addr avec[MAXWAY];
+		struct db_obj_addr a;
 		unsigned char indata[INSIZE];
 	} d;
 	char		bucket[64];		/* bucket */
 	char		owner[64];		/* object owner */
 	char		md5[40];		/* data checksum */
-	uint32_t	n_str;			/* # attached string pairs */
 
 	/* array of uint16_t
 	   representing string lengths of HTTP headers.

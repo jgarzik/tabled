@@ -418,8 +418,9 @@ static void cli_free(struct client *cli)
 
 	/* clean up network socket */
 	if (cli->fd >= 0) {
-		if (event_del(&cli->ev) < 0)
+		if (cli->ev_active && event_del(&cli->ev) < 0)
 			applog(LOG_WARNING, "TCP client event_del");
+		cli->ev_active = false;
 		close(cli->fd);
 	}
 
@@ -444,6 +445,7 @@ static struct client *cli_alloc(void)
 
 	cli->state = evt_read_req;
 	INIT_LIST_HEAD(&cli->write_q);
+	INIT_LIST_HEAD(&cli->out_ch);
 	cli->req_ptr = cli->req_buf;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
 
@@ -1286,6 +1288,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 		applog(LOG_WARNING, "tcp client event_add");
 		goto err_out_fd;
 	}
+	cli->ev_active = true;
 
 	/* pretty-print incoming cxn info */
 	memset(host, 0, sizeof(host));
@@ -1393,6 +1396,7 @@ int stor_update_cb(void)
 			if (debugging)
 				applog(LOG_DEBUG, " NID %u is up", stn->id);
 			num_up++;
+			stn->up = true;
 		}
 	}
 	if (num_up < 1) {
@@ -1400,7 +1404,7 @@ int stor_update_cb(void)
 		return num_up;
 	}
 	if (debugging)
-		applog(LOG_DEBUG, "Active storage node(s): %d", stn->id);
+		applog(LOG_DEBUG, "Active storage node(s): %d", num_up);
 
 	/*
 	 * We initiate operations even if there's no redundancy in order

@@ -997,7 +997,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 		memset(&v, 0, sizeof(v));
 		strcpy(v.md5, obj->md5);
 		if (!(GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE))
-			memcpy(&v.addr, &obj->d.avec[0], sizeof(v.addr));
+			memcpy(&v.addr, &obj->d.a, sizeof(v.addr));
 		v.mtime = obj->mtime;
 		v.size = obj->size;
 		free(obj);

@@ -437,21 +437,20 @@ static void print_obj(struct db_obj_ent *obj)
 			GUINT16_FROM_LE(obj->size),
 			n_str);
 	} else {
-		printf("%s\t%s\t%s",
+		printf("%s\t%s\t%s\t%llX",
 			obj->bucket,
 			obj->owner,
-			obj->md5);
+			obj->md5,
+			(long long) GUINT64_FROM_LE(obj->d.a.oid));
 		for (i = 0; i < MAXWAY; i++) {
 			if (i == 0) {
 				printf("\t");
 			} else {
 				printf(",");
 			}
-			printf("\t%d:%lld",
-			       GUINT32_FROM_LE(obj->d.avec[i].nid),
-			       (long long) GUINT64_FROM_LE(obj->d.avec[i].oid));
-			printf("%u\n", n_str);
+			printf("%d", GUINT32_FROM_LE(obj->d.a.nidv[i]));
 		}
+		printf(" %u\n", n_str);
 	}
 
 	p = obj;
