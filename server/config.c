@@ -75,13 +75,8 @@ static void cfg_elm_end_listen(struct config_context *cc)
 		return;
 	}
 
-	if (cc->tmp_listen.port && cc->tmp_listen.port_file) {
-		applog(LOG_ERR, "cfgfile: Listen with both Port and PortFile");
-		goto err;
-	}
-
-	if (!cc->tmp_listen.port && !cc->tmp_listen.port_file) {
-		applog(LOG_ERR, "cfgfile: Listen with no Port or PortFile");
+	if (!cc->tmp_listen.port) {
+		applog(LOG_ERR, "cfgfile: Listen with no Port");
 		goto err;
 	}
 
@@ -270,7 +265,8 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 		if (cc->in_listen) {
 			n = strtol(cc->text, NULL, 10);
-			if (n > 0 && n < 65536) {
+			if ((n > 0 && n < 65536) ||
+			    !strcmp(cc->text, "auto")) {
 				free(cc->tmp_listen.port);
 				cc->tmp_listen.port = cc->text;
 			} else {

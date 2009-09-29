@@ -1480,15 +1480,32 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 	return fd;
 }
 
+static int net_write_port(const char *port_file,
+			  const char *host, const char *port)
+{
+	FILE *portf;
+	int rc;
+
+	portf = fopen(port_file, "w");
+	if (portf == NULL) {
+		rc = errno;
+		applog(LOG_INFO, "Cannot create port file %s: %s",
+		       port_file, strerror(rc));
+		return -rc;
+	}
+	fprintf(portf, "%s:%s\n", tabled_srv.ourhost, port);
+	fclose(portf);
+	return 0;
+}
+
 /*
  * This, annoyingly, has to have a side effect: it fills out tabled_srv.port
  * so that we can later export it into CLD.
  */
-static int net_open_any(char *portfile)
+static int net_open_any(void)
 {
 	struct sockaddr_in addr4;
 	struct sockaddr_in6 addr6;
-	FILE *portf;
 	int fd4, fd6;
 	socklen_t addr_len;
 	unsigned short port;
@@ -1533,7 +1550,7 @@ static int net_open_any(char *portfile)
 		port = ntohs(addr4.sin_port);
 	}
 
-	applog(LOG_INFO, "Listening on port %u file %s", port, portfile);
+	applog(LOG_INFO, "Listening on port %u", port);
 
 	rc = asprintf(&tabled_srv.port, "%u", port);
 	if (rc < 0) {
@@ -1541,17 +1558,6 @@ static int net_open_any(char *portfile)
 		return -ENOMEM;
 	}
 
-	portf = fopen(portfile, "w");
-	if (portf == NULL) {
-		rc = errno;
-		applog(LOG_INFO, "Cannot create port file %s: %s",
-		       portfile, strerror(rc));
-		return -rc;
-	}
-	fprintf(portf, "%s:%u\n", tabled_srv.ourhost, port);
-	fclose(portf);
-
-	tabled_srv.state_net = ST_NET_OPEN;
 	return 0;
 }
 
@@ -1623,10 +1629,24 @@ err_addr:
 
 static int net_open(void)
 {
-	if (tabled_srv.port_file)
-		return net_open_any(tabled_srv.port_file);
+	int rc;
+
+	if (!strcmp(tabled_srv.port, "auto"))
+		rc = net_open_any();
 	else
-		return net_open_known(tabled_srv.port);
+		rc = net_open_known(tabled_srv.port);
+	if (rc)
+		return rc;
+
+	if (tabled_srv.port_file) {
+		rc = net_write_port(tabled_srv.port_file,
+				    tabled_srv.ourhost, tabled_srv.port);
+		if (rc)
+			return rc;
+	}
+
+	tabled_srv.state_net = ST_NET_OPEN;
+	return 0;
 }
 
 static void net_listen(void)
