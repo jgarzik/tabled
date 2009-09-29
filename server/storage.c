@@ -120,7 +120,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 		   uint64_t key, uint64_t *psize)
 {
 	char stckey[STOR_KEY_SLEN+1];
-	size_t size;
+	uint64_t size;
 
 	if (!cep->stc)
 		return -EINVAL;

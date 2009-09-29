@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -9,7 +10,6 @@
  */
 int tb_readport(const char *fname, char *buf, size_t len)
 {
-	long port;
 	int fd;
 	char *s;
 	int rc;
