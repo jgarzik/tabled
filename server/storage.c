@@ -342,7 +342,7 @@ bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 	return true;
 }
 
-static struct storage_node *stor_node_by_nid(uint32_t nid)
+struct storage_node *stor_node_by_nid(uint32_t nid)
 {
 	struct storage_node *sn;
 

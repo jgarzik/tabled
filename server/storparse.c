@@ -102,16 +102,19 @@ static void cfg_elm_end_storage(struct config_context *cc)
 
 	/* FIXME Chunkd with SSL needs certs, or else it's security theater. */
 	if (cc->stor_encrypt) {
-		applog(LOG_WARNING, "%s: Good Socket, but "
+		applog(LOG_WARNING, "%s: Good Socket (%s,%s), but "
 		       "SSL access to Chunk is not supported yet",
-		       cc->fname);
+		       cc->fname,
+		       cc->stor_host, cc->stor_port);
 		goto end;
 	}
 
 	if (cc->stor_ok) {
-		applog(LOG_WARNING, "%s: Good Socket, but "
-		       "multihomed Chunk is not supported yet",
-		       cc->fname);
+		applog(LOG_WARNING, "%s: Good Socket (%s,%s), but "
+		       "multihomed Chunk is not supported yet, using (%s,%s)",
+		       cc->fname,
+		       cc->stor_host, cc->stor_port,
+		       cc->stor_ok_host, cc->stor_ok_port);
 		goto end;
 	}
 

@@ -124,25 +124,34 @@ bool object_del_acls(DB_TXN *txn, const char *bucket, const char *key)
 	return true;
 }
 
-static int object_unlink(struct db_obj_ent *obj)
+static void object_unlink(struct db_obj_ent *obj)
 {
 	struct db_obj_addr *addr;
+	int i;
 	struct storage_node *stnode;
+	int rc;
 
 	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE)
-		return 0;
-	/*
-	 * FIXME Iterate over all of NIDs when redundancy is added;
-	 * use nid to locate node in all_stor.
-	 */
+		return;
 	addr = &obj->d.a;
 
-	if (list_empty(&tabled_srv.all_stor))
-		return -EIO;
-	stnode = list_entry(tabled_srv.all_stor.next,
-			    struct storage_node, all_link);
+	for (i = 0; i < MAXWAY; i++) {
+		uint32_t nid;
 
-	return stor_obj_del(stnode, GUINT64_FROM_LE(addr->oid));
+		nid = GUINT32_FROM_LE(addr->nidv[i]);
+		if (!nid)
+			continue;
+		stnode = stor_node_by_nid(nid);
+		if (!stnode)
+			continue;
+
+		rc = stor_obj_del(stnode, GUINT64_FROM_LE(addr->oid));
+		if (rc)
+			applog(LOG_ERR,
+			       "object data(%llX) unlink failed on nid %u",
+			       (unsigned long long) GUINT64_FROM_LE(addr->oid),
+			       nid);
+	}
 }
 
 bool object_del(struct client *cli, const char *user,
@@ -204,9 +213,7 @@ bool object_del(struct client *cli, const char *user,
 		return cli_err(cli, InternalError);
 	}
 
-	if (object_unlink(&obje) < 0)
-		applog(LOG_ERR, "object data(%llX) unlink failed",
-		       (unsigned long long) cli->in_objid);
+	object_unlink(&obje);
 	if (asprintf(&hdr,
 "HTTP/%d.%d 204 x\r\n"
 "Content-Length: 0\r\n"
@@ -311,6 +318,7 @@ static bool object_put_end(struct client *cli)
 	struct list_head *pos, *tmp;
 	int nok;
 	enum errcode err = InternalError;
+	struct db_obj_addr obj_addr;
 	struct db_obj_ent *obj;
 	struct db_obj_key *obj_key;
 	struct db_obj_ent oldobj;
@@ -331,6 +339,8 @@ static bool object_put_end(struct client *cli)
 	else
 		cli->state = evt_dispose;
 
+	memset(&obj_addr, 0, sizeof(struct db_obj_addr));
+	obj_addr.oid = GUINT64_TO_LE(cli->out_objid);
 	nok = 0;
 	list_for_each_safe(pos, tmp, &cli->out_ch) {
 		struct open_chunk *ochunk;
@@ -349,6 +359,7 @@ static bool object_put_end(struct client *cli)
 					applog(LOG_DEBUG, "STORED %llX, size -",
 					       (unsigned long long) cli->out_objid);
 			}
+			obj_addr.nidv[nok] = GUINT32_TO_LE(ochunk->node->id);
 			nok++;
 		}
 		stor_close(ochunk);
@@ -435,8 +446,7 @@ static bool object_put_end(struct client *cli)
 	/* encode object header */
 	obj->size = cli->out_size;
 	obj->mtime = (uint64_t)time(NULL) * 1000000;
-	obj->d.a.nidv[0] = GUINT32_TO_LE(1);		/* FIXME */
-	obj->d.a.oid = GUINT64_TO_LE(cli->out_objid);
+	memcpy(&obj->d.a, &obj_addr, sizeof(struct db_obj_addr));
 	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
 	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
 	strncpy(obj->md5, md5, sizeof(obj->md5));
@@ -480,10 +490,8 @@ static bool object_put_end(struct client *cli)
 	/* now that all database manipulation has been a success,
 	 * we can remove the old object (overwritten) data.
 	 */
-	if (delobj && object_unlink(&oldobj) < 0) {
-		applog(LOG_ERR, "object data(%llX) orphaned",
-		       (unsigned long long) GUINT64_FROM_LE(oldobj.d.a.oid));
-	}
+	if (delobj)
+		object_unlink(&oldobj);
 
 	free(cli->out_bucket);
 	free(cli->out_key);
@@ -724,6 +732,8 @@ static int open_chunks(struct list_head *olist, struct list_head *slist,
 
 	n = 0;
 	list_for_each_entry(stnode, slist, all_link) {
+		if (n >= MAXWAY)
+			break;
 		if (!stnode->up)
 			continue;
 		ochunk = open_chunk1(stnode, objid, content_len);
@@ -1034,17 +1044,9 @@ static bool object_get_more(struct client *cli, struct client_write *wr,
 }
 
 /* callback from the chunkd side: some data is available */
-static void object_get_event(struct open_chunk *cep)
+static void object_get_event(struct open_chunk *ochunk)
 {
-	struct client *cli;
-	unsigned char *p;
-
-	/* FIXME what's the name of this ideom? parentof()? */
-	p = (unsigned char *)cep;
-	p -= ((unsigned long) &((struct client *)0)->in_ce);  /* offsetof */
-	cli = (struct client *) p;
-
-	object_get_poke(cli);
+	object_get_poke(ochunk->cli);
 }
 
 bool object_get_body(struct client *cli, const char *user, const char *bucket,
@@ -1148,12 +1150,21 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 
 	cli->in_objid = GUINT64_FROM_LE(obj->d.a.oid);
 
-	if (list_empty(&tabled_srv.all_stor)) {
-		applog(LOG_ERR, "No chunk nodes");
-		goto err_out_str;
+	for (i = 0; i < MAXWAY; i++ ) {
+		uint32_t nid;
+
+		nid = GUINT32_FROM_LE(obj->d.a.nidv[0]);
+		if (!nid)
+			continue;
+		stnode = stor_node_by_nid(nid);
+		if (stnode)		/* FIXME temporarily 1-way */
+			break;
+
+		applog(LOG_ERR, "No chunk node nid %u for oid %llX",
+		       nid, cli->in_objid);
 	}
-	stnode = list_entry(tabled_srv.all_stor.next,
-			    struct storage_node, all_link);
+	if (!stnode)
+		goto err_out_str;
 
 	rc = stor_open(&cli->in_ce, stnode);
 	if (rc < 0) {
@@ -1169,6 +1180,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		       (unsigned long long) cli->in_objid, stnode->id, rc);
 		goto err_out_str;
 	}
+	cli->in_ce.cli = cli;
 
 	hdr = req_hdr(&cli->req, "if-unmodified-since");
 	if (hdr) {

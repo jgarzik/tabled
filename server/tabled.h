@@ -333,6 +333,7 @@ extern bool stor_put_end(struct open_chunk *cep);
 extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);
 extern int stor_obj_del(struct storage_node *stn, uint64_t key);
 extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
+extern struct storage_node *stor_node_by_nid(uint32_t nid);
 extern void stor_add_node(uint32_t nid, const char *hostname,
 			  const char *portstr, struct geo *locp);
 extern int stor_node_check(struct storage_node *stn);
