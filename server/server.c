@@ -53,8 +53,6 @@
 
 #define PROGRAM_NAME "tabled"
 
-#define MY_ENDPOINT "pretzel.yyz.us"
-
 const char *argp_program_version = PACKAGE_VERSION;
 
 enum {
@@ -103,9 +101,6 @@ struct server tabled_srv = {
 struct tabledb tdb;
 
 struct compiled_pat patterns[] = {
-	[pat_bucket_host] =
-	{ "^\\s*(\\w+)\\.(\\w.*)$", 0, },
-
 	[pat_auth] =
 	{ "^AWS (\\w+):(\\S+)", 0, },
 
@@ -805,7 +800,6 @@ bool cli_resp_xml(struct client *cli, int http_status,
 
 static bool cli_evt_http_req(struct client *cli, unsigned int events)
 {
-	int captured[16];
 	struct http_req *req = &cli->req;
 	char *host, *auth, *content_len_str;
 	char *bucket = NULL;
@@ -842,21 +836,13 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 		return cli_err(cli, InvalidArgument);
 
 	/* attempt to obtain bucket name from Host */
-	if (pcre_exec(patterns[pat_bucket_host].re, NULL,
-		      host, strlen(host), 0, 0, captured, 16) == 3) {
-		if ((strlen(MY_ENDPOINT) == (captured[5] - captured[4])) &&
-		    (!memcmp(MY_ENDPOINT, host + captured[4],
-		    	     strlen(MY_ENDPOINT)))) {
-			bucket = g_strndup(host + captured[2],
-					 captured[3] - captured[2]);
-			path = g_strndup(req->uri.path, req->uri.path_len);
-		}
-	}
+	bucket = bucket_host(host, tabled_srv.ourhost);
 
 	/* attempt to obtain bucket name from URI path */
-	if (!bucket) {
+	if (!bucket)
 		buck_in_path = bucket_base(req->uri.path, &bucket, &path);
-	}
+	else
+		path = strdup(req->uri.path);
 
 	if (!path)
 		path = strdup("/");

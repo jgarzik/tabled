@@ -408,6 +408,29 @@ bool bucket_base(const char *uri_path, char **pbucket, char **ppath)
 	return true;
 }
 
+/*
+ * Match host against ourhost and return the bucket, if any.
+ * This used to be handled with a regexp "^\\s*(\\w+)\\.(\\w.*)$",
+ * but that failed due to hostnames having a dash in them.
+ */
+char *bucket_host(const char *host, const char *ourhost)
+{
+	size_t ourhlen = strlen(ourhost);
+	size_t hlen = strlen(host);
+	size_t bucklen;
+
+	if (ourhlen >= hlen)
+		return NULL;
+	bucklen = hlen-ourhlen;		/* at least one */
+	if (strcasecmp(host + bucklen, ourhost))
+		return NULL;
+	if (host[--bucklen] != '.')
+		return NULL;
+	if (bucklen == 0)
+		return NULL;
+	return g_strndup(host, bucklen);
+}
+
 bool bucket_add(struct client *cli, const char *user, const char *bucket)
 {
 	char *hdr, timestr[64];

@@ -69,7 +69,6 @@ struct client_write;
 struct server_socket;
 
 enum {
-	pat_bucket_host,
 	pat_auth,
 	pat_ipv4_addr,
 };
@@ -257,6 +256,7 @@ extern bool bucket_list(struct client *cli, const char *user, const char *bucket
 extern bool bucket_del(struct client *cli, const char *user, const char *bucket);
 extern bool bucket_add(struct client *cli, const char *user, const char *bucket);
 extern bool bucket_valid(const char *bucket);
+extern char *bucket_host(const char *host, const char *ourhost);
 extern bool bucket_base(const char *uri_path, char **pbucket, char **ppath);
 extern bool service_list(struct client *cli, const char *user);
 
