@@ -181,6 +181,7 @@ struct client {
 	unsigned char		*in_mem;
 	uint64_t		in_objid;
 	long			in_len;
+	int			in_retry;
 
 	/* we put the big arrays and objects at the end... */
 

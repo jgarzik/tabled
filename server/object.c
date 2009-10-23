@@ -1054,7 +1054,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 {
 	char *md5;
 	char timestr[64], modstr[64], *hdr, *tmp;
-	int rc, i;
+	int rc, i, n;
 	enum errcode err = InternalError;
 	char buf[4096];
 	ssize_t bytes;
@@ -1150,35 +1150,56 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 
 	cli->in_objid = GUINT64_FROM_LE(obj->d.a.oid);
 
+	n = 0;
 	for (i = 0; i < MAXWAY; i++ ) {
 		uint32_t nid;
+		nid = GUINT32_FROM_LE(obj->d.a.nidv[i]);
+		if (nid)
+			n++;
+	}
+	cli->in_retry = n * 2;
 
-		nid = GUINT32_FROM_LE(obj->d.a.nidv[0]);
-		if (!nid)
-			continue;
-		stnode = stor_node_by_nid(nid);
-		if (stnode)		/* FIXME temporarily 1-way */
-			break;
+ stnode_open_retry:
+	if (cli->in_retry == 0) {
+		applog(LOG_ERR, "No input nodes for oid %llX", cli->in_objid);
+		goto err_out_str;
+	}
+	--cli->in_retry;
 
-		applog(LOG_ERR, "No chunk node nid %u for oid %llX",
-		       nid, cli->in_objid);
+	stnode = NULL;
+	n = rand() % MAXWAY;
+	for (i = 0; i < MAXWAY; i++ ) {
+		uint32_t nid;
+		nid = GUINT32_FROM_LE(obj->d.a.nidv[n]);
+		if (nid) {
+			stnode = stor_node_by_nid(nid);
+			if (stnode) {
+				if (debugging)
+					applog(LOG_DEBUG,
+					       "Selected nid %u for oid %llX",
+					       nid, cli->in_objid);
+				break;
+			}
+		}
+		n = (n + 1) % MAXWAY;
 	}
 	if (!stnode)
-		goto err_out_str;
+		goto stnode_open_retry;
 
 	rc = stor_open(&cli->in_ce, stnode);
 	if (rc < 0) {
 		applog(LOG_WARNING, "Cannot open input chunk, nid %u (%d)",
 		       stnode->id, rc);
-		goto err_out_str;
+		goto stnode_open_retry;
 	}
 
 	rc = stor_open_read(&cli->in_ce, object_get_event, cli->in_objid,
 			    &objsize);
 	if (rc < 0) {
-		applog(LOG_ERR, "open oid %llX failed, nid %u (%d)",
-		       (unsigned long long) cli->in_objid, stnode->id, rc);
-		goto err_out_str;
+		applog(LOG_ERR, "Cannot start nid %u for oid %llX (%d)",
+		       stnode->id, (unsigned long long) cli->in_objid, rc);
+		stor_close(&cli->in_ce);
+		goto stnode_open_retry;
 	}
 	cli->in_ce.cli = cli;
 
