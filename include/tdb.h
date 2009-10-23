@@ -122,4 +122,8 @@ extern int tdb_up(struct tabledb *tdb, unsigned int open_flags);
 extern void tdb_down(struct tabledb *tdb);
 extern void tdb_fini(struct tabledb *tdb);
 
+/* util.c */
+uint64_t objid_next(uint64_t *state, struct tabledb *tdbp);
+int objid_init(uint64_t *state, struct tabledb *tdbp);
+
 #endif /* __TDB_H__ */

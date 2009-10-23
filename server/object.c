@@ -773,7 +773,7 @@ bool object_put_body(struct client *cli, const char *user, const char *bucket,
 		return cli_err(cli, InternalError);
 	}
 
-	objid = objid_next();
+	objid = objid_next(&tabled_srv.object_count, &tdb);
 
 	rc = open_chunks(&cli->out_ch, &tabled_srv.all_stor,
 			 cli, objid, content_len);

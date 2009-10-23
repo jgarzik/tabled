@@ -1690,7 +1690,7 @@ static void tdb_state_process(enum st_tdb new_state)
 		if (tdb_up(&tdb, db_flags))
 			return;
 
-		if (objid_init()) {
+		if (objid_init(&tabled_srv.object_count, &tdb)) {
 			tdb_down(&tdb);
 			return;
 		}

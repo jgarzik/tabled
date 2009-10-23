@@ -188,10 +188,10 @@ void md5str(const unsigned char *digest, char *outstr)
 	outstr[MD5_DIGEST_LENGTH * 2] = 0;
 }
 
-uint64_t objid_next(void)
+uint64_t objid_next(uint64_t *obj_count, struct tabledb *tdbp)
 {
-	DB_ENV *dbenv = tdb.env;
-	DB *oids = tdb.oids;
+	DB_ENV *dbenv = tdbp->env;
+	DB *oids = tdbp->oids;
 	DB_TXN *txn = NULL;
 	DBT pkey, pval;
 	int recno;
@@ -201,7 +201,7 @@ uint64_t objid_next(void)
 
 	recno = 1;
 
-	objcount = ++tabled_srv.object_count;
+	objcount = ++(*obj_count);
 	if (objcount % OBJID_STEP != 0)
 		return objcount;
 
@@ -246,10 +246,10 @@ err_out_begin:
  * We could auto-init, but the explicit initialization makes aborts
  * more debuggable and less unexpected, as they happen before requests come.
  */
-int objid_init(void)
+int objid_init(uint64_t *obj_count, struct tabledb *tdbp)
 {
-	DB_ENV *dbenv = tdb.env;
-	DB *oids = tdb.oids;
+	DB_ENV *dbenv = tdbp->env;
+	DB *oids = tdbp->oids;
 	DB_TXN *txn = NULL;
 	DBT pkey, pval;
 	int recno;
@@ -265,6 +265,7 @@ int objid_init(void)
 
 	memset(&pval, 0, sizeof(pval));
 	pval.data = &cntbuf;
+	pval.size = sizeof(uint64_t);
 	pval.ulen = sizeof(uint64_t);
 	pval.flags = DB_DBT_USERMEM;
 
@@ -277,39 +278,49 @@ int objid_init(void)
 
 	/* read existing counter, if any */
 	rc = oids->get(oids, txn, &pkey, &pval, DB_RMW);
-	if (rc == DB_NOTFOUND) {
+	if (rc) {
+		if (rc != DB_NOTFOUND) {
+			applog(LOG_ERR, "objid_init get error %d", rc);
+			txn->abort(txn);
+			return -1;
+		}
 		objcount = 1;
-	} else if (rc) {
-		applog(LOG_ERR, "objid_init get error %d", rc);
-		txn->abort(txn);
-		return -1;
 	} else {
 		if (pval.size != sizeof(uint64_t)) {
 			applog(LOG_ERR, "objid_init got size %d", pval.size);
 			txn->abort(txn);
 			return -1;
 		}
+
 		objcount = GUINT64_FROM_LE(cntbuf);
 		if (debugging)
 			applog(LOG_INFO, "objid_init initial %llX",
 			       (unsigned long long) objcount);
 		objcount += OBJID_STEP;
+	}
 
-		/*
-		 * Commit new step block for two reasons:
-		 *  - if we crash before next step commit
-		 *  - better verify now that writing IDs works ok
-		 */
-		cntbuf = GUINT64_TO_LE(objcount);
+	/*
+	 * Commit new step block for two reasons:
+	 *  - if we crash before next step commit
+	 *  - better verify now that writing IDs works ok
+	 */
+	cntbuf = GUINT64_TO_LE(objcount);
 
-		rc = oids->put(oids, txn, &pkey, &pval, 0);
-		if (rc) {
-			dbenv->err(dbenv, rc, "oids->put");
-			rc = txn->abort(txn);
-			if (rc)
-				dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
-			return -1;
-		}
+	memset(&pkey, 0, sizeof(pkey));
+	pkey.data = &recno;
+	pkey.size = sizeof(recno);
+
+	memset(&pval, 0, sizeof(pval));
+	pval.data = &cntbuf;
+	pval.size = sizeof(uint64_t);
+
+	rc = oids->put(oids, txn, &pkey, &pval, 0);
+	if (rc) {
+		dbenv->err(dbenv, rc, "oids->put");
+		rc = txn->abort(txn);
+		if (rc)
+			dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+		return -1;
 	}
 
 	rc = txn->commit(txn, 0);
@@ -323,7 +334,7 @@ int objid_init(void)
 		       (unsigned long long) objcount);
 		return -1;
 	}
-	tabled_srv.object_count = objcount;
+	*obj_count = objcount;
 	return 0;
 }
 

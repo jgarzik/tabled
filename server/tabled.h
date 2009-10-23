@@ -295,9 +295,6 @@ extern void md5str(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
 
-uint64_t objid_next(void);
-int objid_init(void);
-
 /* server.c */
 extern int debugging;
 extern struct server tabled_srv;
