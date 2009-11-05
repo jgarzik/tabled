@@ -95,7 +95,7 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	 * Set up the putting.
 	 */
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
-	if (!stc_put_start(cep->stc, stckey, size, &cep->wfd)) {
+	if (!stc_put_startz(cep->stc, stckey, size, &cep->wfd)) {
 		if (debugging)
 			applog(LOG_INFO, "stor put %s new for %lld error",
 			       stckey, (long long) size);
@@ -132,7 +132,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	}
 
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
-	if (!stc_get_start(cep->stc, stckey, &cep->rfd, &size)) {
+	if (!stc_get_startz(cep->stc, stckey, &cep->rfd, &size)) {
 		if (debugging)
 			applog(LOG_INFO, "stor put %s error", stckey);
 		return -EIO;
@@ -209,7 +209,7 @@ void stor_abort(struct open_chunk *cep)
 
 	if (cep->wtogo) {
 		sprintf(stckey, stor_key_fmt, (unsigned long long) cep->wkey);
-		stc_del(cep->stc, stckey);
+		stc_delz(cep->stc, stckey);
 		cep->wtogo = 0;
 	}
 
@@ -321,7 +321,7 @@ int stor_obj_del(struct storage_node *stn, uint64_t key)
 		return rc;
 
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
-	rc = stc_del(stc, stckey) ? 0 : -EIO;
+	rc = stc_delz(stc, stckey) ? 0 : -EIO;
 
 	stc_free(stc);
 
