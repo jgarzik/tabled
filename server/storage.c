@@ -95,7 +95,7 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	 * Set up the putting.
 	 */
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
-	if (!stc_put_startz(cep->stc, stckey, size, &cep->wfd)) {
+	if (!stc_put_startz(cep->stc, stckey, size, &cep->wfd, 0)) {
 		if (debugging)
 			applog(LOG_INFO, "stor put %s new for %lld error",
 			       stckey, (long long) size);
