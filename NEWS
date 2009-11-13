@@ -1,4 +1,15 @@
 
+Version 0.4 - November 13, 2009
+
+- retrieve chunk config from CLD
+- make start-up (waiting for dependent daemons) more robust
+- automatic TCP port assignment, published in a file for other
+  processes to retrieve.
+- add ability to write to multiple chunk servers (not yet redundant, though)
+- rotate input (read) chunk server
+- several updates for underlying chunkd API changes
+- several bug fixes
+
 Version 0.3 - August 15, 2009
 
 - use chunkd as backing store, rather than local filesystem
