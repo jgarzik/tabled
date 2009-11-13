@@ -40,6 +40,11 @@ static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 	if (!stc)
 		return -EDOM;
 
+	if (!stc_table_openz(stc, "tabled", CHF_TBL_CREAT)) {
+		stc_free(stc);
+		return -EDOM;
+	}
+
 	*stcp = stc;
 	return 0;
 }
