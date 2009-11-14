@@ -32,7 +32,7 @@ m4_define([libhttpstor_revision], [libhttpstor_interface_age])
 m4_define([libhttpstor_age], [m4_eval(libhttpstor_binary_age - libhttpstor_interface_age)])
 m4_define([libhttpstor_version], [libhttpstor_major_version().libhttpstor_minor_version().libhttpstor_micro_version()libhttpstor_extraversion()])
 
-AC_INIT([tabled], [0.4],
+AC_INIT([tabled], [0.5git],
         [http://hail.wiki.kernel.org/])
 
 AC_PREREQ(2.52)
