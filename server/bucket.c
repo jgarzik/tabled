@@ -591,7 +591,7 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	rc = dbenv->txn_begin(dbenv, NULL, &txn, 0);
 	if (rc) {
 		dbenv->err(dbenv, rc, "DB_ENV->txn_begin");
-		goto err_out;
+		goto err_none;
 	}
 
 	/* search for (bucket, *) in object database, to see if
@@ -714,6 +714,7 @@ err_out:
 	rc = txn->abort(txn);
 	if (rc)
 		dbenv->err(dbenv, rc, "DB_ENV->txn_abort");
+err_none:
 	return cli_err(cli, err);
 }
 
