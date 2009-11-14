@@ -40,7 +40,6 @@
 #include <errno.h>
 #include <time.h>
 #include <pcre.h>
-#include <sys/types.h>
 #include <dirent.h>
 #include <glib.h>
 #include <openssl/md5.h>
@@ -83,9 +82,7 @@ static struct argp_option options[] = {
 static const char doc[] =
 PROGRAM_NAME " - distributed table daemon";
 
-
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
-
 
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
