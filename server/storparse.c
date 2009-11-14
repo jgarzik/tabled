@@ -145,7 +145,7 @@ static void cfg_elm_end_geo(struct config_context *cc)
 	}
 
 	if (!cc->loc.rack) {
-		applog(LOG_WARNING, "%s: No rack in Geo element", cc->fname);
+		// applog(LOG_WARNING, "%s: No rack in Geo element", cc->fname);
 		goto end;
 	}
 
@@ -389,9 +389,6 @@ void stor_parse(char *fname, const char *text, size_t len)
 		applog(LOG_WARNING, "%s: No useable Socket clause", fname);
 		goto out_free_all;
 	}
-	if (debugging)
-		applog(LOG_DEBUG, "Adding NID %u host %s port %s",
-		       ctx.nid, ctx.stor_ok_host, ctx.stor_ok_port);
 	stor_add_node(ctx.nid, ctx.stor_ok_host, ctx.stor_ok_port, &ctx.loc);
 
 out_free_all:

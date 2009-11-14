@@ -609,8 +609,8 @@ static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	if (debugging)
-		applog(LOG_DEBUG, "CLD directory \"%s\" opened", sp->xfname);
+	// if (debugging)
+	// 	applog(LOG_DEBUG, "CLD directory \"%s\" opened", sp->xfname);
 
 	/*
 	 * Read the directory.
@@ -713,9 +713,6 @@ static void next_chunk(struct cld_session *sp)
 	}
 	sp->yfname = mem;
 
-	if (debugging)
-		applog(LOG_DEBUG, "opening chunk parameters %s", sp->yfname);
-
 	memset(&copts, 0, sizeof(copts));
 	copts.cb = cldu_open_y_cb;
 	copts.private = sp;
@@ -780,8 +777,6 @@ static int cldu_get_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 
 	ptr = carg->u.get.buf;
 	len = carg->u.get.size;
-	if (debugging)
-		applog(LOG_DEBUG, "got %d bytes from %s", len, sp->yfname);
 	stor_parse(sp->yfname, ptr, len);
 
 close_and_next:
