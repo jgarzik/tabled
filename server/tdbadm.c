@@ -430,11 +430,11 @@ static void print_obj(struct db_obj_ent *obj)
 	char *dbstr;
 
 	if (GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE) {
-		printf("%s\t%s\t%s\t[%d]\t%u\n",
+		printf("%s\t%s\t%s\t[%u]\t%u\n",
 			obj->bucket,
 			obj->owner,
 			obj->md5,
-			GUINT16_FROM_LE(obj->size),
+			(unsigned) GUINT64_FROM_LE(obj->size),
 			n_str);
 	} else {
 		printf("%s\t%s\t%s\t%llX",

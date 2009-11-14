@@ -332,6 +332,7 @@ static bool object_put_end(struct client *cli)
 	GArray *string_lens;
 	uint16_t tmp16;
 	uint32_t n_str;
+	uint64_t tmp_time;
 	void *mem;
 
 	if (http11(&cli->req))
@@ -444,8 +445,9 @@ static bool object_put_end(struct client *cli)
 		goto err_out_rb;
 
 	/* encode object header */
-	obj->size = cli->out_size;
-	obj->mtime = (uint64_t)time(NULL) * 1000000;
+	obj->size = GUINT64_TO_LE(cli->out_size);
+	tmp_time = (uint64_t)time(NULL) * 1000000;
+	obj->mtime = GUINT64_TO_LE(tmp_time);
 	memcpy(&obj->d.a, &obj_addr, sizeof(struct db_obj_addr));
 	strncpy(obj->bucket, cli->out_bucket, sizeof(obj->bucket));
 	strncpy(obj->owner, cli->out_user, sizeof(obj->owner));
@@ -1213,7 +1215,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 			goto err_out_in_end;
 		}
 
-		if (obj->mtime / 1000000 > t) {
+		if (GUINT64_FROM_LE(obj->mtime) / 1000000 > t) {
 			err = PreconditionFailed;
 			goto err_out_in_end;
 		}
@@ -1229,7 +1231,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 			goto err_out_in_end;
 		}
 
-		if (obj->mtime / 1000000 <= t) {
+		if (GUINT64_FROM_LE(obj->mtime) / 1000000 <= t) {
 			modified = false;
 			want_body = false;
 		}
@@ -1253,10 +1255,10 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		     cli->req.major,
 		     cli->req.minor,
 		     modified ? 200 : 304,
-		     (unsigned long long) obj->size,
+		     (unsigned long long) GUINT64_FROM_LE(obj->size),
 		     md5,
 		     time2str(timestr, time(NULL)),
-		     time2str(modstr, obj->mtime / 1000000),
+		     time2str(modstr, GUINT64_FROM_LE(obj->mtime) / 1000000),
 		     extra_hdr->str) < 0)
 		goto err_out_in_end;
 
@@ -1271,7 +1273,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		goto start_write;
 	}
 
-	cli->in_len = obj->size;
+	cli->in_len = GUINT64_FROM_LE(obj->size);
 
 	bytes = stor_get_buf(&cli->in_ce, buf, MIN(cli->in_len, sizeof(buf)));
 	if (bytes < 0) {

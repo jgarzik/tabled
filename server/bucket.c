@@ -1022,8 +1022,8 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 		strcpy(v.md5, obj->md5);
 		if (!(GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE))
 			memcpy(&v.addr, &obj->d.a, sizeof(v.addr));
-		v.mtime = obj->mtime;
-		v.size = obj->size;
+		v.mtime = GUINT64_FROM_LE(obj->mtime);
+		v.size = GUINT64_FROM_LE(obj->size);
 		free(obj);
 
 		if (bucket_list_iter(tmpkey->key, &v, &bli))
