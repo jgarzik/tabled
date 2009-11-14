@@ -547,7 +547,7 @@ static void object_put_event(struct open_chunk *ochunk)
 		return;
 	}
 
-	bytes = stor_put_buf(ochunk, cli->out_buf, cli->out_bcnt);
+	bytes = stor_put_buf(ochunk, ochunk->wbuf, ochunk->wcnt);
 	if (bytes < 0) {
 		if (debugging)
 			applog(LOG_DEBUG, "write(2) error: %s",
@@ -569,6 +569,7 @@ static void object_put_event(struct open_chunk *ochunk)
 		free(ochunk);
 		return;
 	}
+	ochunk->wbuf += bytes;
 	ochunk->wcnt -= bytes;
 
 	if (ochunk->wcnt == 0) {
@@ -592,6 +593,7 @@ static int object_put_buf(struct client *cli, struct open_chunk *ochunk,
 {
 	ssize_t bytes;
 
+	ochunk->wbuf = buf;
 	ochunk->wcnt = len;
 
 	bytes = stor_put_buf(ochunk, buf, len);
@@ -603,6 +605,7 @@ static int object_put_buf(struct client *cli, struct open_chunk *ochunk,
 		return -EIO;
 	}
 	ochunk->wcnt -= bytes;
+	ochunk->wbuf += bytes;
 
 	if (ochunk->wcnt != 0)
 		cli->out_nput++;

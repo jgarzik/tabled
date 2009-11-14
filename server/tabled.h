@@ -123,6 +123,7 @@ struct open_chunk {
 	int			wfd;
 	bool			w_armed;
 	struct event		wevt;
+	void			*wbuf;
 	size_t			wcnt;	/* in current buffer */
 
 	uint64_t		roff;
