@@ -102,8 +102,9 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
 	if (!stc_put_startz(cep->stc, stckey, size, &cep->wfd, 0)) {
 		if (debugging)
-			applog(LOG_INFO, "stor put %s new for %lld error",
-			       stckey, (long long) size);
+			applog(LOG_INFO,
+			       "stor nid %u put %s new for %lld error",
+			       cep->node->id, stckey, (long long) size);
 		return -EIO;
 	}
 	cep->wtogo = size;
@@ -112,8 +113,8 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	event_set(&cep->wevt, cep->wfd, EV_WRITE, stor_write_event, cep);
 
 	if (debugging)
-		applog(LOG_INFO, "stor put %s new for %lld",
-		       stckey, (long long) size);
+		applog(LOG_INFO, "stor nid %u put %s new for %lld",
+		       cep->node->id, stckey, (long long) size);
 
 	return 0;
 }
@@ -139,7 +140,8 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
 	if (!stc_get_startz(cep->stc, stckey, &cep->rfd, &size)) {
 		if (debugging)
-			applog(LOG_INFO, "stor put %s error", stckey);
+			applog(LOG_INFO, "stor nid %u get %s error",
+			       cep->node->id, stckey);
 		return -EIO;
 	}
 	*psize = size;
@@ -149,8 +151,8 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	event_set(&cep->revt, cep->rfd, EV_READ, stor_read_event, cep);
 
 	if (debugging)
-		applog(LOG_INFO, "stor get %s size %lld",
-		       stckey, (long long) size);
+		applog(LOG_INFO, "stor nid %u get %s size %lld",
+		       cep->node->id, stckey, (long long) size);
 
 	return 0;
 }
