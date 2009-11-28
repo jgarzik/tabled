@@ -34,6 +34,7 @@ struct cld_session {
 	bool forced_hosts;		/* Administrator overrode default CLD */
 	bool sess_open;
 	struct cldc_udp *lib;		/* library state */
+	struct event lib_timer;
 	int retry_cnt;
 
 	/*
@@ -216,7 +217,16 @@ static bool cldu_p_timer_ctl(void *priv, bool add,
 			     void *cb_priv, time_t secs)
 {
 	struct cld_session *sp = priv;
-	return cldc_levent_timer(sp->lib, add, cb, cb_priv, secs);
+	struct cldc_udp *udp = sp->lib;
+	struct timeval tv = { secs, 0 };
+
+	if (add) {
+		udp->cb = cb;
+		udp->cb_private = cb_priv;
+		return evtimer_add(&sp->lib_timer, &tv) == 0;
+	} else {
+		return evtimer_del(&sp->lib_timer) == 0;
+	}
 }
 
 static int cldu_p_pkt_send(void *priv, const void *addr, size_t addrlen,
@@ -224,6 +234,16 @@ static int cldu_p_pkt_send(void *priv, const void *addr, size_t addrlen,
 {
 	struct cld_session *sp = priv;
 	return cldc_udp_pkt_send(sp->lib, addr, addrlen, buf, buflen);
+}
+
+static void cldu_udp_timer_event(int fd, short events, void *userdata)
+
+{
+	struct cld_session *sp = userdata;
+	struct cldc_udp *udp = sp->lib;
+
+	if (udp->cb)
+		udp->cb(udp->sess, udp->cb_private);
 }
 
 static void cldu_p_event(void *priv, struct cldc_session *csp,
@@ -286,6 +306,8 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		goto err_addr;
 	}
 	hp = &sp->cldv[sp->actx].h;
+
+	evtimer_set(&sp->lib_timer, cldu_udp_timer_event, sp);
 
 	rc = cldc_udp_new(hp->host, hp->port, &sp->lib);
 	if (rc) {
