@@ -1,13 +1,15 @@
 Name:		tabled
-Version:	0.3
-Release:	2%{?dist}
+Version:	0.5
+Release:	0.1.g26571e40%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-Source0:	tabled-%{version}.tar.gz
+# pulled from upstream git, commit 26571e40570dfb0d0fc69507cbe8386e65252ff8
+# to recreate tarball, check out commit, then run "make dist"
+Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
 Source3:	tabled.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -17,15 +19,11 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
 BuildRequires:	chunkd cld libcurl-devel
 BuildRequires:	procps
-BuildRequires:	cld-devel >= 0.2
+BuildRequires:	cld-devel >= 0.2.1
 BuildRequires:	chunkd-devel >= 0.4
 
-Requires:	cld >= 0.2
+Requires:	cld >= 0.2.1
 Requires:	chunkd >= 0.4
-
-# chunkd is broken on big-endian... embarrassing!!!
-# FIXME: remove this when chunkd is fixed
-ExcludeArch:	ppc ppc64
 
 %description
 tabled provides an infinitely scalable, lexicographically sorted
@@ -46,8 +44,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q
-
+%setup -q -n tabled-0.5git
 
 %build
 %configure --disable-static
@@ -105,6 +102,39 @@ fi
 %{_includedir}/*
 
 %changelog
+* Mon Nov 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.1.g26571e40
+- add sources for git commit 26571e40570dfb0d0fc69507cbe8386e65252ff8
+
+* Fri Nov 13 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-1
+- upstream release v0.4
+
+* Thu Nov  5 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.5.gea96d7d5
+- add sources for git commit ea96d7d54f3bbebf52436a4a1c5de3e85ed7effd
+
+* Fri Oct 02 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.4.ge1c9069b
+- add sources for git commit e1c9069b3604e9c9e2946db80101d456598fef82
+
+* Wed Sep 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.3.g784b42ad
+- add sources for git commit 784b42ad5cd766450c4df93cfb7f91605708dcb1
+
+* Tue Sep 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.2.g0c7f54dc
+- add sources for git commit 0c7f54dcdb057ba46e7f8406695cd66bfc70b0f2
+
+* Tue Sep 29 2009 Jeff Garzik <jgarzik@redhat.com> - 0.4-0.1.g0c7f54dc
+- update to git commit 0c7f54dcdb057ba46e7f8406695cd66bfc70b0f2
+
+* Mon Sep 28 2009 Pete Zaitcev <zaitcev@redhat.com> - 0.3-6
+- Drop ExcludeArch, fixed in bz#514651.
+
+* Sat Sep 05 2009 Caolán McNamara <caolanm@redhat.com> - 0.3-5
+- rebuild for dependencies
+
+* Thu Aug 27 2009 Warren Togami <wtogami@redhat.com> - 0.3-4
+- rebuild
+
+* Wed Aug 26 2009 Jeff Garzik <jgarzik@redhat.com> - 0.3-3
+- require/rebuild for cld 0.2.1
+
 * Fri Aug 21 2009 Tomas Mraz <tmraz@redhat.com> - 0.3-2
 - rebuilt with new openssl
 
