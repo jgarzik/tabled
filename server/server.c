@@ -1733,6 +1733,7 @@ int main (int argc, char *argv[])
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 	if (debugging)
 		applog(LOG_INFO, "Verbose debug output enabled");
+	cldu_hail_log.verbose = debugging;
 
 	/*
 	 * now we can parse the configuration, errors to applog

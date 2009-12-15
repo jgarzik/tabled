@@ -30,6 +30,7 @@
 #include <httputil.h>
 #include <elist.h>
 #include <tdb.h>
+#include <hail_log.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -274,11 +275,12 @@ extern bool cli_evt_http_data_in(struct client *cli, unsigned int events);
 extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
-/* cldc.c */
+/* cldu.c */
 extern void cld_init(void);
 extern int cld_begin(const char *fqdn, const char *cell);
 extern void cldu_add_host(const char *host, unsigned int port);
 extern void cld_end(void);
+extern struct hail_log cldu_hail_log;
 
 /* util.c */
 extern size_t strlist_len(GList *l);

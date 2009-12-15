@@ -86,6 +86,10 @@ static struct timeval cldu_retry_delay = { 5, 0 };
 static struct timeval cldu_rescan_delay = { 50, 0 };
 static struct timeval cldu_reopen_delay = { 3, 0 };
 
+struct hail_log cldu_hail_log = {
+	.func		= applog,
+};
+
 /*
  * Identify the next host to be tried.
  *
@@ -931,7 +935,7 @@ int cld_begin(const char *thishost, const char *thiscell)
 		GList *tmp, *host_list = NULL;
 		int i;
 
-		if (cldc_getaddr(&host_list, thishost, debugging, applog)) {
+		if (cldc_getaddr(&host_list, thishost, &cldu_hail_log)) {
 			/* Already logged error */
 			goto err_addr;
 		}
@@ -990,7 +994,7 @@ void cldu_add_host(const char *hostname, unsigned int port)
 		return;
 
 	if (cldc_saveaddr(&hp->h, 100, 100, port, strlen(hostname), hostname,
-			  debugging, applog))
+			  &cldu_hail_log))
 		return;
 	hp->known = 1;
 
