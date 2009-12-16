@@ -635,9 +635,6 @@ static int cldu_open_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 		return 0;
 	}
 
-	// if (debugging)
-	// 	applog(LOG_DEBUG, "CLD directory \"%s\" opened", sp->xfname);
-
 	/*
 	 * Read the directory.
 	 */

@@ -145,7 +145,6 @@ static void cfg_elm_end_geo(struct config_context *cc)
 	}
 
 	if (!cc->loc.rack) {
-		// applog(LOG_WARNING, "%s: No rack in Geo element", cc->fname);
 		goto end;
 	}
 

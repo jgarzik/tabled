@@ -423,22 +423,6 @@ static int stor_add_node_addr(struct storage_node *sn,
 		sn->addr_af = res->ai_family;
 		sn->alen = res->ai_addrlen;
 
-#if 0
-		if (debugging) {
-			char nhost[41];
-			char nport[6];
-			if (getnameinfo((struct sockaddr *) &sn->addr, sn->alen,
-					nhost, sizeof(nhost),
-				        nport, sizeof(nport),
-					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				applog(LOG_INFO, "Found Chunk host %s port %s",
-				       nhost, nport);
-			} else {
-				applog(LOG_INFO, "Found Chunk host");
-			}
-		}
-#endif
-
 		/* Use just the first address for now. */
 		freeaddrinfo(res0);
 		return 0;
