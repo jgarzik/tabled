@@ -151,6 +151,7 @@ static void object_unlink(struct db_obj_ent *obj)
 			       "object data(%llX) unlink failed on nid %u",
 			       (unsigned long long) GUINT64_FROM_LE(addr->oid),
 			       nid);
+		stor_node_put(stnode);
 	}
 }
 
@@ -694,7 +695,7 @@ static struct open_chunk *open_chunk1(struct storage_node *stnode,
 		goto err_alloc;
 	}
 
-	rc = stor_open(ochunk, stnode);
+	rc = stor_open(ochunk, stnode, tabled_srv.evbase_main);
 	if (rc != 0) {
 		applog(LOG_WARNING, "Cannot open output chunk, nid %u (%d)",
 		       stnode->id, rc);
@@ -1183,6 +1184,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 					applog(LOG_DEBUG,
 					       "Selected nid %u for oid %llX",
 					       nid, cli->in_objid);
+				stor_node_put(stnode);
 				break;
 			}
 		}
@@ -1191,7 +1193,7 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 	if (!stnode)
 		goto stnode_open_retry;
 
-	rc = stor_open(&cli->in_ce, stnode);
+	rc = stor_open(&cli->in_ce, stnode, tabled_srv.evbase_main);
 	if (rc < 0) {
 		applog(LOG_WARNING, "Cannot open input chunk, nid %u (%d)",
 		       stnode->id, rc);

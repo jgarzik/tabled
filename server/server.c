@@ -374,6 +374,8 @@ static void stats_dump(void)
 	X(opt_write);
 	applog(LOG_INFO, "State: TDB %s",
 	    state_name_tdb[tabled_srv.state_tdb]);
+	stor_stats();
+	rep_stats();
 }
 
 #undef X
@@ -1362,7 +1364,7 @@ static void tdb_state_cb(enum db_event event)
  *
  * We don't even bother with registering this callback, just call it by name. 
  *
- * The return value is used to re-arm rescan mechanism.
+ * The return value is used to re-arm storage rescan mechanism.
  */
 int stor_update_cb(void)
 {
@@ -1380,8 +1382,15 @@ int stor_update_cb(void)
 				applog(LOG_DEBUG, " NID %u is up", stn->id);
 			num_up++;
 			stn->up = true;
+			stn->last_up = time(NULL);
+		} else {
+			if (stn->last_up != 0 &&
+			    time(NULL) >= stn->last_up + CHUNK_REBOOT_TIME) {
+				applog(LOG_INFO, " NID %u went down", stn->id);
+			}
 		}
 	}
+
 	if (num_up < 1) {
 		applog(LOG_INFO, "No active storage node(s), waiting");
 		return num_up;
@@ -1692,6 +1701,7 @@ static void tdb_state_process(enum st_tdb new_state)
 			return;
 		}
 		add_chkpt_timer();
+		rep_start();
 		net_listen();
 	}
 }
@@ -1700,6 +1710,7 @@ int main (int argc, char *argv[])
 {
 	error_t aprc;
 	int rc = 1;
+	struct event_base *event_base_rep;
 
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
 	tabled_srv.state_tdb = ST_TDB_INIT;
@@ -1708,6 +1719,9 @@ int main (int argc, char *argv[])
 	setlocale(LC_ALL, "C");
 
 	compile_patterns();
+
+	g_thread_init(NULL);
+	tabled_srv.bigmutex = g_mutex_new();
 
 	SSL_library_init();
 	SSL_load_error_strings();
@@ -1768,7 +1782,8 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
-	event_init();
+	tabled_srv.evbase_main = event_init();
+	event_base_rep = event_base_new();
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
 
 	/* set up server networking */
@@ -1780,6 +1795,8 @@ int main (int argc, char *argv[])
 		rc = 1;
 		goto err_cld_session;
 	}
+
+	rep_init(event_base_rep);
 
 	applog(LOG_INFO, "initialized (%s)",
 	   (tabled_srv.flags & SFL_FOREGROUND)? "fg": "bg");

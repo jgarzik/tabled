@@ -19,9 +19,9 @@
  *
  */
 
-
 #include <stdbool.h>
 #include <stdlib.h>
+#include <time.h>
 #include <netinet/in.h>
 #include <openssl/md5.h>
 #include <glib.h>
@@ -44,6 +44,9 @@ enum {
 	TABLED_PGSZ_LOCK	= 4096,
 
 	TABLED_CHKPT_SEC	= 60 * 5,	/* secs between db4 chkpt */
+	TABLED_RESCAN_SEC	= 60*3 + 7,	/* secs btw key rescans */
+
+	CHUNK_REBOOT_TIME	= 3*60,		/* secs to declare chunk dead */
 
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
 	CLI_DATA_BUF_SZ		= 8192,
@@ -90,13 +93,14 @@ struct storage_node {
 	struct list_head	all_link;
 	uint32_t		id;
 	bool			up;
+	time_t			last_up;
 
 	unsigned		alen;
 	int			addr_af;
 	struct sockaddr_in6	addr;
 	char *hostname;		/* Only used because stc_new is overly smart. */
 
-	int nchu;		/* number of open_chunk */
+	int ref;		/* number of open_chunk or other */
 };
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
@@ -116,7 +120,8 @@ struct open_chunk {
 	struct st_client	*stc;
 	struct storage_node	*node;
 	struct list_head	link;
-	struct client		*cli;
+	void			*cli;	/* usually struct client * */
+	struct event_base	*evbase;
 
 	uint64_t		wtogo;
 	uint64_t		wkey;
@@ -218,6 +223,8 @@ struct listen_cfg {
 struct server {
 	unsigned long		flags;		/* SFL_xxx above */
 	int			pid_fd;		/* fd of pid_file */
+	GMutex			*bigmutex;
+	struct event_base	*evbase_main;
 
 	char			*config;	/* config file (static) */
 
@@ -320,7 +327,10 @@ extern int stor_update_cb(void);
 extern void read_config(void);
 
 /* storage.c */
-extern int stor_open(struct open_chunk *cep, struct storage_node *stn);
+extern struct storage_node *stor_node_get(struct storage_node *stn);
+extern void stor_node_put(struct storage_node *stn);
+extern int stor_open(struct open_chunk *cep, struct storage_node *stn,
+		     struct event_base *ev_base);
 extern int stor_open_read(struct open_chunk *cep,
 			  void (*cb)(struct open_chunk *),
 			  uint64_t key, uint64_t *psz);
@@ -338,8 +348,14 @@ extern struct storage_node *stor_node_by_nid(uint32_t nid);
 extern void stor_add_node(uint32_t nid, const char *hostname,
 			  const char *portstr, struct geo *locp);
 extern int stor_node_check(struct storage_node *stn);
+extern void stor_stats(void);
 
 /* storparse.c */
 extern void stor_parse(char *fname, const char *text, size_t len);
+
+/* replica.c */
+extern void rep_init(struct event_base *ev_base);
+extern void rep_start(void);
+extern void rep_stats(void);
 
 #endif /* __TABLED_H__ */

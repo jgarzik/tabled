@@ -17,6 +17,26 @@
 static const char stor_key_fmt[] = "%016llx";
 #define STOR_KEY_SLEN  16
 
+struct storage_node *stor_node_get(struct storage_node *sn)
+{
+	sn->ref++;
+	if (sn->ref == 103) {		/* FIXME debugging test */
+		applog(LOG_ERR, "ref leak in storage node nid %u", sn->id);
+	}
+	return sn;
+}
+
+void stor_node_put(struct storage_node *sn)
+{
+
+	/* Would be an error in the current code, we never free them. */
+	if (sn->ref == 1) {
+		applog(LOG_ERR, "freeing storage node nid %u", sn->id);
+		return;
+	}
+	--sn->ref;
+}
+
 static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 {
 	struct st_client *stc;
@@ -70,7 +90,8 @@ static void stor_write_event(int fd, short events, void *userdata)
 /*
  * Open *cep using stn, set up chunk session if needed.
  */
-int stor_open(struct open_chunk *cep, struct storage_node *stn)
+int stor_open(struct open_chunk *cep, struct storage_node *stn,
+	      struct event_base *ev_base)
 {
 	int rc;
 
@@ -80,8 +101,8 @@ int stor_open(struct open_chunk *cep, struct storage_node *stn)
 	if ((rc = stor_new_stc(stn, &cep->stc)) < 0)
 		return rc;
 
-	cep->node = stn;
-	stn->nchu++;
+	cep->evbase = ev_base;
+	cep->node = stor_node_get(stn);
 
 	/* cep->stc->verbose = 1; */
 
@@ -111,6 +132,7 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	cep->wkey = key;
 	cep->wcb = cb;
 	event_set(&cep->wevt, cep->wfd, EV_WRITE, stor_write_event, cep);
+	event_base_set(cep->evbase, &cep->wevt);
 
 	if (debugging)
 		applog(LOG_INFO, "stor nid %u put %s new for %lld",
@@ -149,6 +171,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	cep->roff = 0;
 	cep->rcb = cb;
 	event_set(&cep->revt, cep->rfd, EV_READ, stor_read_event, cep);
+	event_base_set(cep->evbase, &cep->revt);
 
 	if (debugging)
 		applog(LOG_INFO, "stor nid %u get %s size %lld",
@@ -163,7 +186,7 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 void stor_close(struct open_chunk *cep)
 {
 	if (cep->stc) {
-		--cep->node->nchu;
+		stor_node_put(cep->node);
 		cep->node = NULL;
 		stc_free(cep->stc);
 		cep->stc = NULL;
@@ -205,7 +228,7 @@ void stor_abort(struct open_chunk *cep)
 
 	rc = stor_new_stc(cep->node, &cep->stc);
 	if (rc < 0) {
-		--cep->node->nchu;
+		stor_node_put(cep->node);
 		cep->node = NULL;
 
 		if (debugging)
@@ -349,7 +372,7 @@ bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 	return true;
 }
 
-struct storage_node *stor_node_by_nid(uint32_t nid)
+static struct storage_node *_stor_node_by_nid(uint32_t nid)
 {
 	struct storage_node *sn;
 
@@ -358,6 +381,17 @@ struct storage_node *stor_node_by_nid(uint32_t nid)
 			return sn;
 	}
 	return NULL;
+}
+
+struct storage_node *stor_node_by_nid(uint32_t nid)
+{
+	struct storage_node *sn;
+
+	g_mutex_lock(tabled_srv.bigmutex);
+	sn = _stor_node_by_nid(nid);
+	stor_node_get(sn);
+	g_mutex_unlock(tabled_srv.bigmutex);
+	return sn;
 }
 
 static int stor_add_node_addr(struct storage_node *sn,
@@ -422,13 +456,15 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 {
 	struct storage_node *sn;
 
-	sn = stor_node_by_nid(nid);
+	g_mutex_lock(tabled_srv.bigmutex);
+	sn = _stor_node_by_nid(nid);
 	if (sn) {
 		stor_add_node_addr(sn, hostname, portstr);
 	} else {
 		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
 			applog(LOG_WARNING, "No core (%ld)",
 			       (long) sizeof(struct storage_node));
+			g_mutex_unlock(tabled_srv.bigmutex);
 			return;
 		}
 		memset(sn, 0, sizeof(struct storage_node));
@@ -437,17 +473,23 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 		if ((sn->hostname = strdup(hostname)) == NULL) {
 			applog(LOG_WARNING, "No core");
 			free(sn);
+			g_mutex_unlock(tabled_srv.bigmutex);
 			return;
 		}
 
 		if (stor_add_node_addr(sn, hostname, portstr)) {
+			free(sn->hostname);
 			free(sn);
+			g_mutex_unlock(tabled_srv.bigmutex);
 			return;
 		}
+
+		stor_node_get(sn);
 
 		list_add(&sn->all_link, &tabled_srv.all_stor);
 		tabled_srv.num_stor++;
 	}
+	g_mutex_unlock(tabled_srv.bigmutex);
 }
 
 /* Return 0 if the node checks out ok */
@@ -479,5 +521,21 @@ int stor_node_check(struct storage_node *stn)
 
 	stc_free(stc);
 	return 0;
+}
+
+void stor_stats()
+{
+	struct storage_node *sn;
+	time_t now;
+
+	g_mutex_lock(tabled_srv.bigmutex);
+	now = time(NULL);
+	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
+		applog(LOG_INFO, "SN nid %u %s last %lu (+ %ld) ref %d name %s",
+		       sn->id, sn->up? "up": "down",
+		       (long) sn->last_up, (long) (now - sn->last_up),
+		       sn->ref, sn->hostname);
+	}
+	g_mutex_unlock(tabled_srv.bigmutex);
 }
 
