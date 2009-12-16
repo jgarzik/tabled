@@ -44,10 +44,10 @@ static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 	struct sockaddr_in6 *a6;
 	unsigned short port;
 
-	if (stn->addr_af == AF_INET) {
+	if (stn->addr.sin6_family == AF_INET) {
 		a4 = (struct sockaddr_in *) &stn->addr;
 		port = ntohs(a4->sin_port);
-	} else if (stn->addr_af == AF_INET6) {
+	} else if (stn->addr.sin6_family == AF_INET6) {
 		a6 = &stn->addr;
 		port = ntohs(a6->sin6_port);
 	} else {
@@ -419,9 +419,9 @@ static int stor_add_node_addr(struct storage_node *sn,
 		if (res->ai_addrlen > ADDRSIZE)		/* should not happen */
 			continue;
 
-		memcpy(&sn->addr, res->ai_addr, res->ai_addrlen);
-		sn->addr_af = res->ai_family;
 		sn->alen = res->ai_addrlen;
+		memcpy(&sn->addr, res->ai_addr, sn->alen);
+		sn->addr.sin6_family = res->ai_family;
 
 		/* Use just the first address for now. */
 		freeaddrinfo(res0);

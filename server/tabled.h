@@ -36,7 +36,7 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
-#define ADDRSIZE	24	/* Enough for IPv6, including port. */
+#define ADDRSIZE	(sizeof(struct sockaddr_in6))	/* enough for v4 & v6 */
 
 enum {
 	TABLED_PGSZ_INODE	= 4096,
@@ -96,7 +96,6 @@ struct storage_node {
 	time_t			last_up;
 
 	unsigned		alen;
-	int			addr_af;
 	struct sockaddr_in6	addr;
 	char *hostname;		/* Only used because stc_new is overly smart. */
 
