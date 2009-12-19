@@ -17,6 +17,9 @@
  *
  */
 
+#define _GNU_SOURCE
+#include "tabled-config.h"
+
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <errno.h>

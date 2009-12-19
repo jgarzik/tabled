@@ -17,7 +17,9 @@
  *
  */
 
+#define _GNU_SOURCE
 #include "tabled-config.h"
+
 #include <string.h>
 #include <locale.h>
 #include <httpstor.h>

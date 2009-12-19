@@ -19,6 +19,7 @@
 
 #define _GNU_SOURCE
 #include "tabled-config.h"
+
 #include <sys/types.h>
 #include <string.h>
 #include <syslog.h>

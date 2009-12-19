@@ -19,6 +19,7 @@
 
 #define _GNU_SOURCE
 #include "tabled-config.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <curl/curl.h>
