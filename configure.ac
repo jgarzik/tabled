@@ -85,7 +85,7 @@ AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
   [AC_MSG_ERROR([Missing required libdb 4.x])]))))))
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
   [AC_MSG_ERROR([Missing required libevent])])
-AC_CHECK_LIB(argp, argp_parse, ARGP_LIBS=-largp)
+AC_SEARCH_LIBS(argp_parse, argp)
 PKG_CHECK_MODULES(CHUNKDC, libchunkdc)
 PKG_CHECK_MODULES(CLDC, libcldc)
 
@@ -112,7 +112,6 @@ AC_SUBST(CRYPTO_LIBS)
 AC_SUBST(SSL_LIBS)
 AC_SUBST(DB4_LIBS)
 AC_SUBST(EVENT_LIBS)
-AC_SUBST(ARGP_LIBS)
 dnl PKG_CHECK_MODULES has AC_SUBST inside?
 dnl AC_SUBST(CHUNKDC_LIBS)
 
