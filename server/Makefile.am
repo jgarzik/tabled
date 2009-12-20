@@ -11,5 +11,5 @@ tabled_LDADD	= ../lib/libhttputil.a ../lib/libtdb.a		\
 		  @CRYPTO_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ @SSL_LIBS@
 
 tdbadm_SOURCES	= tdbadm.c
-tdbadm_LDADD	= ../lib/libtdb.a @GLIB_LIBS@ @DB4_LIBS@ @ARGP_LIBS@
+tdbadm_LDADD	= ../lib/libtdb.a @GLIB_LIBS@ @DB4_LIBS@
 
