@@ -86,6 +86,7 @@ AC_CHECK_LIB(db-4.8, db_create, DB4_LIBS=-ldb-4.8,
 AC_CHECK_LIB(event, event_base_new, EVENT_LIBS=-levent,
   [AC_MSG_ERROR([Missing required libevent])])
 AC_SEARCH_LIBS(argp_parse, argp)
+AC_SEARCH_LIBS(bind, socket)
 PKG_CHECK_MODULES(CHUNKDC, libchunkdc)
 PKG_CHECK_MODULES(CLDC, libcldc)
 
