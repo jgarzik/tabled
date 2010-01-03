@@ -196,7 +196,8 @@ struct httpstor_blist *httpstor_list_buckets(struct httpstor_client *httpstor)
 	req.method = "GET";
 	req.orig_path = "/";
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
@@ -315,7 +316,8 @@ static bool __httpstor_ad_bucket(struct httpstor_client *httpstor, const char *n
 	req.method = delete ? "DELETE" : "PUT";
 	req.orig_path = orig_path;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
@@ -374,7 +376,8 @@ bool httpstor_get(struct httpstor_client *httpstor, const char *bucket, const ch
 	req.method = "GET";
 	req.orig_path = orig_path;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
@@ -453,7 +456,8 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 	req.method = "PUT";
 	req.orig_path = orig_path;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
@@ -544,7 +548,8 @@ bool httpstor_del(struct httpstor_client *httpstor, const char *bucket, const ch
 	req.method = "DELETE";
 	req.orig_path = orig_path;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
@@ -740,7 +745,8 @@ struct httpstor_keylist *httpstor_keys(struct httpstor_client *httpstor, const c
 	req.method = "GET";
 	req.orig_path = orig_path;
 
-	sprintf(datestr, "Date: %s", time2str(timestr, 64, time(NULL)));
+	sprintf(datestr, "Date: %s",
+		time2str(timestr, sizeof(timestr), time(NULL)));
 
 	req_hdr_push(&req, "Date", timestr);
 
