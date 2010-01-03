@@ -37,11 +37,6 @@ struct config_context {
 	bool		in_listen;
 	struct listen_cfg tmp_listen;
 
-	bool		in_storage;
-	unsigned int	stor_nid;
-	char		*stor_port;
-	char		*stor_host;
-
 	bool		in_cld;
 	unsigned short	cld_port;
 	char		*cld_host;
@@ -62,14 +57,6 @@ static void cfg_elm_start (GMarkupParseContext *context,
 			cc->in_listen = true;
 		} else {
 			applog(LOG_ERR, "Nested Listen in configuration");
-		}
-	}
-	else if (!strcmp(element_name, "StorageNode")) {
-		if (!cc->in_storage) {
-			cc->in_storage = true;
-			cc->stor_nid++;
-		} else {
-			applog(LOG_ERR, "Nested StorageNode in configuration");
 		}
 	}
 	else if (!strcmp(element_name, "CLD")) {
@@ -114,44 +101,6 @@ static void cfg_elm_end_listen(struct config_context *cc)
 	free(cc->tmp_listen.port);
 	free(cc->tmp_listen.port_file);
 	memset(&cc->tmp_listen, 0, sizeof(struct listen_cfg));
-}
-
-static void cfg_elm_end_storage(struct config_context *cc)
-{
-	struct geo dummy_loc;
-
-	if (cc->text) {
-		applog(LOG_WARNING, "Extra text in StorageNode element: \"%s\"",
-		       cc->text);
-		free(cc->text);
-		cc->text = NULL;
-		goto end;
-	}
-
-	if (!cc->stor_host) {
-		applog(LOG_WARNING, "No host for StorageNode element");
-		goto end;
-	}
-	if (!cc->stor_port) {
-		applog(LOG_WARNING, "No port for StorageNode element");
-		goto end;
-	}
-
-	memset(&dummy_loc, 0, sizeof(struct geo));
-	stor_add_node(cc->stor_nid, cc->stor_host, cc->stor_port, &dummy_loc);
-	/*
-	 * We don't call stor_update_cb here because doing it so early
-	 * hangs TDB replication for some reason (and produces a process
-	 * that needs -9 to kill).
-	 *
-	 * Instead, there's a little plug in cldu.c that does it.
-	 */
-
-end:
-	free(cc->stor_host);
-	cc->stor_host = NULL;
-	free(cc->stor_port);
-	cc->stor_port = NULL;
 }
 
 static void cfg_elm_end_cld(struct config_context *cc)
@@ -262,11 +211,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->in_listen = false;
 	}
 
-	else if (!strcmp(element_name, "StorageNode")) {
-		cfg_elm_end_storage(cc);
-		cc->in_storage = false;
-	}
-
 	else if (!strcmp(element_name, "CLD")) {
 		cfg_elm_end_cld(cc);
 		cc->in_cld = false;
@@ -291,17 +235,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 				free(cc->text);
 			}
 			cc->text = NULL;
-		} else if (cc->in_storage) {
-			n = strtol(cc->text, NULL, 10);
-			if (n > 0 && n < 65536) {
-				free(cc->stor_port);
-				cc->stor_port = cc->text;
-			} else {
-				applog(LOG_WARNING,
-				       "Port '%s' invalid, ignoring", cc->text);
-				free(cc->text);
-			}
-			cc->text = NULL;
 		} else if (cc->in_cld) {
 			n = strtol(cc->text, NULL, 10);
 			if (n > 0 && n < 65536)
@@ -313,7 +246,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			cc->text = NULL;
 		} else {
 			applog(LOG_WARNING,
-			       "Port element not in Listen or StorageNode");
+			       "Port element not in Listen or CLD");
 			return;
 		}
 
@@ -325,16 +258,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		if (cc->in_storage) {
-			free(cc->stor_host);
-			cc->stor_host = cc->text;
-			cc->text = NULL;
-		} else if (cc->in_cld) {
+		if (cc->in_cld) {
 			free(cc->cld_host);
 			cc->cld_host = cc->text;
 			cc->text = NULL;
 		} else {
-			applog(LOG_WARNING, "Host element not in StorageNode");
+			applog(LOG_WARNING, "Host element not in CLD");
 		}
 	}
 
