@@ -85,7 +85,7 @@ enum ReqACLC {
 };
 
 /* httputil.c */
-extern char *time2str(char *strbuf, time_t time);
+extern char *time2str(char *buf, int len, time_t time);
 extern time_t str2time(const char *timestr);
 extern int req_hdr_push(struct http_req *req, char *key, char *val);
 extern char *req_hdr(struct http_req *req, const char *key);

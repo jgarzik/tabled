@@ -224,7 +224,7 @@ bool object_del(struct client *cli, const char *user,
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, time(NULL))) < 0)
+		     time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -515,7 +515,7 @@ static bool object_put_end(struct client *cli)
 		     cli->req.major,
 		     cli->req.minor,
 		     md5,
-		     time2str(timestr, time(NULL))) < 0) {
+		     time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
 		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
@@ -928,7 +928,7 @@ static bool object_put_acls(struct client *cli, const char *user,
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, time(NULL))) < 0) {
+		     time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
 		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
@@ -1263,8 +1263,9 @@ bool object_get_body(struct client *cli, const char *user, const char *bucket,
 		     modified ? 200 : 304,
 		     (unsigned long long) GUINT64_FROM_LE(obj->size),
 		     md5,
-		     time2str(timestr, time(NULL)),
-		     time2str(modstr, GUINT64_FROM_LE(obj->mtime) / 1000000),
+		     time2str(timestr, sizeof(timestr), time(NULL)),
+		     time2str(modstr, sizeof(modstr),
+			      GUINT64_FROM_LE(obj->mtime) / 1000000),
 		     extra_hdr->str) < 0)
 		goto err_out_in_end;
 

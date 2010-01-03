@@ -698,7 +698,7 @@ bool cli_err(struct client *cli, enum errcode code)
 		 * FIXME '*' for URI is bogus. We keep this until we know
 		 * how to test this code path.
 		 */
-		if (asprintf(&hdr,
+		rc = asprintf(&hdr,
 			"HTTP/%d.%d %d x\r\n"
 			"Content-Type: application/xml\r\n"
 			"Content-Length: %zu\r\n"
@@ -711,13 +711,14 @@ bool cli_err(struct client *cli, enum errcode code)
 			     cli->req.minor,
 			     err_info[code].status,
 			     strlen(content),
-			     time2str(timestr, time(NULL)),
-			     "*") < 0) {
+			     time2str(timestr, sizeof(timestr), time(NULL)),
+			     "*");
+		if (rc < 0) {
 			free(content);
 			return false;
 		}
 	} else {
-		if (asprintf(&hdr,
+		rc = asprintf(&hdr,
 			"HTTP/%d.%d %d x\r\n"
 			"Content-Type: application/xml\r\n"
 			"Content-Length: %zu\r\n"
@@ -729,7 +730,8 @@ bool cli_err(struct client *cli, enum errcode code)
 			     cli->req.minor,
 			     err_info[code].status,
 			     strlen(content),
-			     time2str(timestr, time(NULL))) < 0) {
+			     time2str(timestr, sizeof(timestr), time(NULL)));
+		if (rc < 0) {
 			free(content);
 			return false;
 		}
@@ -766,7 +768,7 @@ bool cli_resp_xml(struct client *cli, int http_status,
 		     cli->req.minor,
 		     http_status,
 		     strlist_len(content),
-		     time2str(timestr, time(NULL)),
+		     time2str(timestr, sizeof(timestr), time(NULL)),
 		     cxn_close ? "Connection: close\r\n" : "") < 0) {
 		__strlist_free(content);
 		return false;

@@ -40,10 +40,19 @@ time_t str2time(const char *timestr)
 	return mktime(&tm);
 }
 
-char *time2str(char *strbuf, time_t src_time)
+char *time2str(char *strbuf, int buflen, time_t src_time)
 {
-	struct tm *tm = gmtime(&src_time);
-	strftime(strbuf, 64, "%a, %d %b %Y %H:%M:%S %z", tm);
+	struct tm tm;
+	size_t rc;
+
+	if (buflen <= 0)
+		return NULL;	/* too wrong, better crash right away. */
+	gmtime_r(&src_time, &tm);
+	rc = strftime(strbuf, buflen, "%a, %d %b %Y %H:%M:%S %z", &tm);
+	if (rc >= buflen)
+		strbuf[buflen-1] = 0;
+	else if (rc == 0)
+		strbuf[0] = 0;
 	return strbuf;
 }
 

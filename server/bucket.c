@@ -265,7 +265,7 @@ bool service_list(struct client *cli, const char *user)
                         "    </Bucket>\r\n",
 
 			     ent->name,
-			     time2str(timestr,
+			     time2str(timestr, sizeof(timestr),
 			     	      GUINT64_FROM_LE(ent->time_create)));
 		if (!s)
 			goto err_out_content;
@@ -547,7 +547,7 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, time(NULL)),
+		     time2str(timestr, sizeof(timestr), time(NULL)),
 		     bucket) < 0)
 		return cli_err(cli, InternalError);
 
@@ -700,7 +700,7 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, time(NULL))) < 0)
+		     time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -1093,7 +1093,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
                          "  </Contents>\r\n",
 
 			 vp->key,
-			 time2str(timestr, vp->mtime / 1000000),
+			 time2str(timestr, sizeof(timestr), vp->mtime / 1000000),
 			 vp->md5,
 			 (unsigned long long) vp->size,
 			 user,

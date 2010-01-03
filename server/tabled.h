@@ -300,7 +300,6 @@ extern void applogerr(const char *prefix);
 extern void strup(char *s);
 extern int write_pid_file(const char *pid_fn);
 extern int fsetflags(const char *prefix, int fd, int or_flags);
-extern char *time2str(char *strbuf, time_t time);
 extern void md5str(const unsigned char *digest, char *outstr);
 extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 	      char *b64hmac_out);
