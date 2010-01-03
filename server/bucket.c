@@ -817,6 +817,7 @@ struct obj_vitals {
 	uint64_t		mtime;
 	struct db_obj_addr	addr;
 	char			md5[40];
+	char			owner[65];
 };
 
 static bool bucket_list_iter(const char *key, struct obj_vitals *v,
@@ -1021,6 +1022,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 
 		memset(&v, 0, sizeof(v));
 		strcpy(v.md5, obj->md5);
+		strncpy(v.owner, obj->owner, sizeof(v.owner)-1);
 		if (!(GUINT32_FROM_LE(obj->flags) & DB_OBJ_INLINE))
 			memcpy(&v.addr, &obj->d.a, sizeof(v.addr));
 		v.mtime = GUINT64_FROM_LE(obj->mtime);
@@ -1096,8 +1098,8 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 			 time2str(timestr, sizeof(timestr), vp->mtime / 1000000),
 			 vp->md5,
 			 (unsigned long long) vp->size,
-			 user,
-			 user);
+			 vp->owner,
+			 vp->owner);
 
 		content = g_list_append(content, s);
 
