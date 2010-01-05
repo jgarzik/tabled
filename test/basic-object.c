@@ -28,12 +28,13 @@
 
 int main(int argc, char *argv[])
 {
+	static char bucket[] = "test1";
+	static char key[] = "my first key";
 	struct httpstor_client *httpstor;
 	char accbuf[80];
 	int rc;
 	bool rcb;
 	char val[] = "my first value";
-	char key[] = "my first key";
 	size_t len = 0;
 	void *mem;
 
@@ -46,25 +47,25 @@ int main(int argc, char *argv[])
 	OK(httpstor);
 
 	/* add bucket */
-	rcb = httpstor_add_bucket(httpstor, "test1");
+	rcb = httpstor_add_bucket(httpstor, bucket);
 	OK(rcb);
 
 	/* store object */
-	rcb = httpstor_put_inline(httpstor, "test1", key, val, strlen(val), NULL);
+	rcb = httpstor_put_inline(httpstor, bucket, key, val, strlen(val), NULL);
 	OK(rcb);
 
 	/* get object */
-	mem = httpstor_get_inline(httpstor, "test1", key, false, &len);
+	mem = httpstor_get_inline(httpstor, bucket, key, false, &len);
 	OK(mem);
 	OK(len == strlen(val));
 	OK(!memcmp(val, mem, strlen(val)));
 
 	/* delete object */
-	rcb = httpstor_del(httpstor, "test1", key);
+	rcb = httpstor_del(httpstor, bucket, key);
 	OK(rcb);
 
 	/* delete bucket */
-	rcb = httpstor_del_bucket(httpstor, "test1");
+	rcb = httpstor_del_bucket(httpstor, bucket);
 	OK(rcb);
 
 	return 0;
