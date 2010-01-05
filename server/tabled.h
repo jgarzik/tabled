@@ -103,11 +103,13 @@ struct storage_node {
 };
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int);
-typedef bool (*cli_write_func)(struct client *, struct client_write *, bool);
+typedef bool (*cli_write_func)(struct client *, void *, bool);
 
 struct client_write {
-	const void		*buf;		/* write buffer */
-	int			len;		/* write buffer length */
+	const void		*buf;		/* write buffer pointer */
+	int			togo;		/* write buffer remainder */
+
+	int			length;		/* length for accounting */
 	cli_write_func		cb;		/* callback */
 	void			*cb_data;	/* data passed to cb */
 
@@ -314,8 +316,7 @@ extern bool cli_resp_xml(struct client *cli, int http_status,
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern size_t cli_wqueued(struct client *cli);
-extern bool cli_cb_free(struct client *cli, struct client_write *wr,
-			bool done);
+extern bool cli_cb_free(struct client *cli, void *cb_data, bool done);
 extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);

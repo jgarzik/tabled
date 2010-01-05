@@ -983,8 +983,7 @@ void cli_in_end(struct client *cli)
 	stor_close(&cli->in_ce);
 }
 
-static bool object_get_more(struct client *cli, struct client_write *wr,
-			    bool done);
+static bool object_get_more(struct client *cli, void *cb_data, bool done);
 
 /*
  * Return true iff cli_writeq was called. This is compatible with the
@@ -1036,12 +1035,11 @@ err_out:
 }
 
 /* callback from the client side: a queued write is being disposed */
-static bool object_get_more(struct client *cli, struct client_write *wr,
-			    bool done)
+static bool object_get_more(struct client *cli, void *cb_data, bool done)
 {
 
 	/* free now-written buffer */
-	free(wr->cb_data);
+	free(cb_data);
 
 	/* do not queue more, if !completion or fd was closed early */
 	if (!done)	/* FIXME We used to test for input errors here. */

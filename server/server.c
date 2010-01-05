@@ -386,10 +386,10 @@ static bool cli_write_free(struct client *cli, struct client_write *tmp,
 {
 	bool rcb = false;
 
-	cli->write_cnt -= tmp->len;
+	cli->write_cnt -= tmp->length;
 	list_del(&tmp->node);
 	if (tmp->cb)
-		rcb = tmp->cb(cli, tmp, done);
+		rcb = tmp->cb(cli, tmp->cb_data, done);
 	free(tmp);
 
 	return rcb;
@@ -487,7 +487,7 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 
 static void cli_writable(struct client *cli)
 {
-	unsigned int n_iov = 0;
+	int n_iov;
 	struct client_write *tmp;
 	ssize_t rc;
 	struct iovec iov[CLI_MAX_WR_IOV];
@@ -497,13 +497,14 @@ restart:
 	more_work = false;
 
 	/* accumulate pending writes into iovec */
+	n_iov = 0;
 	list_for_each_entry(tmp, &cli->write_q, node) {
-		/* bleh, struct iovec should declare iov_base const */
-		iov[n_iov].iov_base = (void *) tmp->buf;
-		iov[n_iov].iov_len = tmp->len;
-		n_iov++;
 		if (n_iov == CLI_MAX_WR_IOV)
 			break;
+		/* bleh, struct iovec should declare iov_base const */
+		iov[n_iov].iov_base = (void *) tmp->buf;
+		iov[n_iov].iov_len = tmp->togo;
+		n_iov++;
 	}
 
 	/* execute non-blocking write */
@@ -527,14 +528,15 @@ do_write:
 		tmp = list_entry(cli->write_q.next, struct client_write, node);
 
 		/* mark data consumed by decreasing tmp->len */
-		sz = (tmp->len < rc) ? tmp->len : rc;
-		tmp->len -= sz;
+		sz = (tmp->togo < rc) ? tmp->togo : rc;
+		tmp->togo -= sz;
+		tmp->buf += sz;
 		rc -= sz;
 
 		/* if tmp->len reaches zero, write is complete,
 		 * call callback and clean up
 		 */
-		if (tmp->len == 0)
+		if (tmp->togo == 0)
 			if (cli_write_free(cli, tmp, true))
 				more_work = true;
 	}
@@ -600,11 +602,12 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		return -ENOMEM;
 
 	wr->buf = buf;
-	wr->len = buflen;
+	wr->togo = buflen;
+	wr->length = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
 	list_add_tail(&wr->node, &cli->write_q);
-	cli->write_cnt += wr->len;
+	cli->write_cnt += buflen;
 
 	return 0;
 }
@@ -645,11 +648,9 @@ do_read:
 	return 0;
 }
 
-bool cli_cb_free(struct client *cli, struct client_write *wr,
-			bool done)
+bool cli_cb_free(struct client *cli, void *cb_data, bool done)
 {
-	free(wr->cb_data);
-
+	free(cb_data);
 	return false;
 }
 
