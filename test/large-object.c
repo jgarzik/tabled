@@ -44,18 +44,36 @@
 #define NBLKS2	30000
 
 struct put_ctx {
+	unsigned int csum;
 	unsigned int blksize;
 	unsigned long off;
 	unsigned long total;
 };
 
 struct get_ctx {
+	unsigned int csum;
 	unsigned int blksize;
 	unsigned long off;
 };
 
 static char bucket[] = "test-large";
 static char key[] = "Key of Large Object";
+
+#define CSUM_INIT  0xFFFFFFFF
+
+static void incrsum(unsigned int *psum, unsigned char *data, size_t len)
+{
+	unsigned int sum;
+
+	sum = *psum;
+	while (len) {
+		sum ^= *data;
+		sum = sum << 1 | sum >> 31;
+		data++;
+		--len;
+	}
+	*psum = sum;
+}
 
 static size_t put_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
 {
@@ -83,6 +101,8 @@ static size_t put_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
 		data[rem - 1] = ~num;
 	if (off == 0)
 		data[0] = num;
+
+	incrsum(&ctx->csum, data, rem);
 
 	ctx->off += rem;
 
@@ -131,6 +151,8 @@ static size_t get_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
 
 	OK(membsize == 1);
 
+	incrsum(&ctx->csum, ptr, nmemb);
+
 	togo = nmemb;
 	while (togo) {
 		len = get_one(ctx, ptr, togo);
@@ -144,11 +166,13 @@ static void runtest(struct httpstor_client *httpstor,
 		    size_t blklen, int nblks)
 {
 	off_t total = blklen * nblks;
+	unsigned int checksum;
 	struct put_ctx putctx;
 	struct get_ctx getctx;
 	bool rcb;
 
 	memset(&putctx, 0, sizeof(putctx));
+	putctx.csum = CSUM_INIT;
 	putctx.blksize = blklen;
 	putctx.total = total;
 
@@ -156,12 +180,17 @@ static void runtest(struct httpstor_client *httpstor,
 	OK(rcb);
 	OK(putctx.off == total);
 
+	checksum = putctx.csum;
+
 	memset(&getctx, 0, sizeof(getctx));
+	getctx.csum = CSUM_INIT;
 	getctx.blksize = blklen;
 
 	rcb = httpstor_get(httpstor, bucket, key, get_cb, &getctx, false);
 	OK(rcb);
 	OK(getctx.off == total);
+
+	OK(checksum == getctx.csum);
 }
 
 int main(int argc, char *argv[])
