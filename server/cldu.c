@@ -559,8 +559,8 @@ static int cldu_put_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 {
 	struct cld_session *sp = carg->private;
-	const char *ptr;
-	int dir_len;
+	char *ptr;
+	size_t dir_len;
 	int total_len, rec_len, name_len;
 	char buf[65];
 
@@ -572,8 +572,7 @@ static int cldu_get_1_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	if (debugging)
 		applog(LOG_DEBUG, "Known tabled nodes");
 
-	ptr = carg->u.get.buf;
-	dir_len = carg->u.get.size;
+	cldc_call_opts_get_data(carg, &ptr, &dir_len);
 	while (dir_len) {
 		name_len = GUINT16_FROM_LE(*(uint16_t *)ptr);
 		rec_len = name_len + 2;
@@ -684,8 +683,8 @@ static int cldu_get_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	struct cld_session *sp = carg->private;
 	struct cldc_call_opts copts;
 	int rc;
-	const char *ptr;
-	int dir_len;
+	char *ptr;
+	size_t dir_len;
 	int total_len, rec_len, name_len;
 	char buf[65];
 
@@ -697,8 +696,7 @@ static int cldu_get_x_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	if (debugging)
 		applog(LOG_DEBUG, "Known Chunk nodes");
 
-	ptr = carg->u.get.buf;
-	dir_len = carg->u.get.size;
+	cldc_call_opts_get_data(carg, &ptr, &dir_len);
 	while (dir_len) {
 		name_len = GUINT16_FROM_LE(*(uint16_t *)ptr);
 		rec_len = name_len + 2;
@@ -821,16 +819,15 @@ static int cldu_get_y_cb(struct cldc_call_opts *carg, enum cle_err_codes errc)
 	struct cld_session *sp = carg->private;
 	struct cldc_call_opts copts;
 	int rc;
-	const char *ptr;
-	int len;
+	char *ptr;
+	size_t len;
 
 	if (errc != CLE_OK) {
 		applog(LOG_ERR, "CLD get(%s) failed: %d", sp->yfname, errc);
 		goto close_and_next;	/* spaghetti */
 	}
 
-	ptr = carg->u.get.buf;
-	len = carg->u.get.size;
+	cldc_call_opts_get_data(carg, &ptr, &len);
 	stor_parse(sp->yfname, ptr, len);
 
 close_and_next:
