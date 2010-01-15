@@ -236,6 +236,7 @@ struct server {
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
 	unsigned short		rep_port;	/* db4 replication port */
+	char			*cell;		/* our cell (both T and Ch) */
 
 	char			*ourhost;	/* use this if DB master */
 	struct database		*db;		/* database handle */

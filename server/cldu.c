@@ -129,6 +129,10 @@ static int cldu_nextactive(struct cld_session *sp)
 	return sp->actx;
 }
 
+/*
+ * Notice that for now we use the same cell name for both tabled and the
+ * chunkservers that it uses, so this function only takes one cell argument.
+ */
 static int cldu_setcell(struct cld_session *sp,
 			const char *thiscell, const char *thishost)
 {

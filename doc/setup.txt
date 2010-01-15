@@ -10,13 +10,30 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 pacman.phx2.ex.com.
 _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 [root@table1 ~]# 
 
-   If this does not work, set up CLD before proceeding.
+   If this does not work, STOP NOW. Then, talk to your DNS administrator.
 
    Also, make sure that your hostname has a domain. We don't want to search
-   for CLD in the DNS root, do we?
+   for CLD in the world-wide DNS root, do we?
+
+   Make sure CLD is up (run "cldcli" to verify).
+
+*) Another thing to set up in DNS is a wildcard host for the system where
+   tabled will run. Unlike the SRV records of CLD, this is optional, but
+   these days applications may presume that it exists. Here's the way it's
+   done in ISC BIND:
+
+emus3           IN      A       192.168.128.9
+                IN      TXT     "Dell C8WQMC1"
+                IN      AAAA    fec0::1:219:b9ff:fe58:7ad6
+*.emus3         IN      CNAME   emus3
+
+   All examples on Google say FQDN is required, and most presume aliasing
+   of A and AAAA records, but BIND 9 eats the above fine.
 
 *) Copy configuration file from doc/etc.tabled.conf to /etc/tabled.conf
-   and edit to suit (see configurable items below).
+   and edit to suit (see configurable items below). Notice that the file
+   looks like XML, but is not really. In particular, names of elements are
+   case-sensitive.
 
 *) The tabled writes its pid to /var/run/tabled.pid by default.
    If you don't like the location, change it with <PID> tag.
@@ -24,12 +41,29 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
 *) Create/choose TDB data directory, where Berkeley DB stores
    data and metadata. Change this location with <TDB> tag.
 
+*) Assign the cell name:
+
+	<Cell>ultracart3</Cell>
+
+   Currently, a tabled process scans its cell, finds all other tabled
+   instances, and attempts to replicate its database to/from them.
+   In short, use one cell per business application.
+
+   Cell name defaults to "default", so you can leave this element unset,
+   but don't do it. Any name, even "qwerty", is better than the default.
+
 *) Select the port to listen, if desired. This is done using the <Listen>
    element:
 
 	<Listen>
 		<Port>80</Port>
 	</Listen>
+
+   Default is port 80, which you should use unless the system in question
+   hosts an unrelated webserver too. This is because some libraries, such
+   as ancient Google Boto, may have bugs that prevent them from talking to
+   ports other than 80 (for unencrypted HTTP). If your target clients are
+   bug-free, use anything you like. The 8080 is a popular choice.
 
 *) Initialize TDB, the metadata database.  Load user/password pairs
    into TDB, using tdbadm utility.  The user/password pairs are

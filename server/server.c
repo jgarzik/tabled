@@ -1795,7 +1795,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_net;
 
-	if (cld_begin(tabled_srv.ourhost, NULL) != 0) {
+	if (cld_begin(tabled_srv.ourhost, tabled_srv.cell) != 0) {
 		rc = 1;
 		goto err_cld_session;
 	}

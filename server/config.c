@@ -317,6 +317,17 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 #endif
 
+	else if (!strcmp(element_name, "Cell")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "Cell element empty");
+			return;
+		}
+
+		free(tabled_srv.cell);
+		tabled_srv.cell = cc->text;
+		cc->text = NULL;
+	}
+
 	else {
 		applog(LOG_WARNING, "Unknown element \"%s\"", element_name);
 	}
