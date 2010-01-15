@@ -70,7 +70,6 @@ enum errcode {
 
 struct client;
 struct client_write;
-struct server_socket;
 
 enum {
 	pat_auth,
