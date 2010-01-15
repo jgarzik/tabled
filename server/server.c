@@ -62,6 +62,7 @@ enum {
 };
 
 struct server_socket {
+	bool			is_status;
 	int			fd;
 	struct event		ev;
 };
@@ -376,7 +377,6 @@ static void stats_dump(void)
 	applog(LOG_INFO, "State: TDB %s",
 	    state_name_tdb[tabled_srv.state_tdb]);
 	stor_stats();
-	rep_stats();
 }
 
 #undef X
@@ -425,26 +425,6 @@ static void cli_free(struct client *cli)
 		applog(LOG_INFO, "client %s ended", cli->addr_host);
 
 	free(cli);
-}
-
-static struct client *cli_alloc(void)
-{
-	struct client *cli;
-
-	/* alloc and init client info */
-	cli = calloc(1, sizeof(*cli));
-	if (!cli) {
-		applog(LOG_ERR, "out of memory");
-		return NULL;
-	}
-
-	cli->state = evt_read_req;
-	INIT_LIST_HEAD(&cli->write_q);
-	INIT_LIST_HEAD(&cli->out_ch);
-	cli->req_ptr = cli->req_buf;
-	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
-
-	return cli;
 }
 
 static bool cli_evt_dispose(struct client *cli, unsigned int events)
@@ -738,6 +718,13 @@ bool cli_err(struct client *cli, enum errcode code)
 		}
 	}
 
+	return cli_err_write(cli, hdr, content);
+}
+
+bool cli_err_write(struct client *cli, char *hdr, char *content)
+{
+	int rc;
+
 	cli->state = evt_dispose;
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -750,8 +737,8 @@ bool cli_err(struct client *cli, enum errcode code)
 	return cli_write_start(cli);
 }
 
-bool cli_resp_xml(struct client *cli, int http_status,
-			 GList *content)
+bool cli_resp(struct client *cli, int http_status, const char *content_type,
+	      GList *content)
 {
 	int rc;
 	char *hdr, timestr[50];
@@ -759,7 +746,7 @@ bool cli_resp_xml(struct client *cli, int http_status,
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d %d x\r\n"
-"Content-Type: application/xml\r\n"
+"Content-Type: %s\r\n"
 "Content-Length: %zu\r\n"
 "Date: %s\r\n"
 "%s"
@@ -768,6 +755,7 @@ bool cli_resp_xml(struct client *cli, int http_status,
 		     cli->req.major,
 		     cli->req.minor,
 		     http_status,
+		     content_type,
 		     strlist_len(content),
 		     time2str(timestr, sizeof(timestr), time(NULL)),
 		     cxn_close ? "Connection: close\r\n" : "") < 0) {
@@ -799,6 +787,16 @@ bool cli_resp_xml(struct client *cli, int http_status,
 		return true;
 
 	return rcb;
+}
+
+bool cli_resp_xml(struct client *cli, int http_status, GList *content)
+{
+	return cli_resp(cli, http_status, "application/xml", content);
+}
+
+bool cli_resp_html(struct client *cli, int http_status, GList *content)
+{
+	return cli_resp(cli, http_status, "text/html", content);
 }
 
 static bool cli_evt_http_req(struct client *cli, unsigned int events)
@@ -1205,7 +1203,7 @@ static bool cli_evt_read_req(struct client *cli, unsigned int events)
 	return true;
 }
 
-static cli_evt_func state_funcs[] = {
+static cli_evt_func evt_funcs_server[] = {
 	[evt_read_req]		= cli_evt_read_req,
 	[evt_parse_req]		= cli_evt_parse_req,
 	[evt_read_hdr]		= cli_evt_read_hdr,
@@ -1215,6 +1213,38 @@ static cli_evt_func state_funcs[] = {
 	[evt_dispose]		= cli_evt_dispose,
 	[evt_recycle]		= cli_evt_recycle,
 };
+
+static cli_evt_func evt_funcs_status[] = {
+	[evt_read_req]		= cli_evt_read_req,
+	[evt_parse_req]		= cli_evt_parse_req,
+	[evt_read_hdr]		= cli_evt_read_hdr,
+	[evt_parse_hdr]		= cli_evt_parse_hdr,
+	[evt_http_req]		= stat_evt_http_req,
+	[evt_http_data_in]	= cli_evt_http_data_in,
+	[evt_dispose]		= cli_evt_dispose,
+	[evt_recycle]		= cli_evt_recycle,
+};
+
+static struct client *cli_alloc(bool is_status)
+{
+	struct client *cli;
+
+	/* alloc and init client info */
+	cli = calloc(1, sizeof(*cli));
+	if (!cli) {
+		applog(LOG_ERR, "out of memory");
+		return NULL;
+	}
+
+	cli->state = evt_read_req;
+	cli->evt_table = is_status? evt_funcs_status: evt_funcs_server;
+	INIT_LIST_HEAD(&cli->write_q);
+	INIT_LIST_HEAD(&cli->out_ch);
+	cli->req_ptr = cli->req_buf;
+	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
+
+	return cli;
+}
 
 static void tcp_cli_wr_event(int fd, short events, void *userdata)
 {
@@ -1229,7 +1259,7 @@ static void tcp_cli_event(int fd, short events, void *userdata)
 	bool loop;
 
 	do {
-		loop = state_funcs[cli->state](cli, events);
+		loop = cli->evt_table[cli->state](cli, events);
 	} while (loop);
 }
 
@@ -1242,7 +1272,7 @@ static void tcp_srv_event(int fd, short events, void *userdata)
 	int on = 1;
 
 	/* alloc and init client info */
-	cli = cli_alloc();
+	cli = cli_alloc(sock->is_status);
 	if (!cli) {
 		struct sockaddr_in6 a;
 		int cli_fd = accept(sock->fd, (struct sockaddr *) &a, &addrlen);
@@ -1428,7 +1458,7 @@ int stor_update_cb(void)
 }
 
 static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
-			   int addr_len, void *addr_ptr)
+			   int addr_len, void *addr_ptr, bool is_status)
 {
 	struct server_socket *sock;
 	int fd, on;
@@ -1469,6 +1499,7 @@ static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
 	}
 
 	sock->fd = fd;
+	sock->is_status = is_status;
 
 	event_set(&sock->ev, fd, EV_READ | EV_PERSIST, tcp_srv_event, sock);
 
@@ -1513,7 +1544,8 @@ static int net_open_any(void)
 	memset(&addr6, 0, sizeof(addr6));
 	addr6.sin6_family = AF_INET6;
 	memcpy(&addr6.sin6_addr, &in6addr_any, sizeof(struct in6_addr));
-	fd6 = net_open_socket(AF_INET6, SOCK_STREAM, 0, sizeof(addr6), &addr6);
+	fd6 = net_open_socket(AF_INET6, SOCK_STREAM, 0, sizeof(addr6), &addr6,
+			      false);
 
 	if (fd6 >= 0) {
 		addr_len = sizeof(addr6);
@@ -1531,7 +1563,8 @@ static int net_open_any(void)
 	/* If IPv6 worked, we must use the same port number for IPv4 */
 	if (port)
 		addr4.sin_port = port;
-	fd4 = net_open_socket(AF_INET, SOCK_STREAM, 0, sizeof(addr4), &addr4);
+	fd4 = net_open_socket(AF_INET, SOCK_STREAM, 0, sizeof(addr4), &addr4,
+			      false);
 
 	if (!port) {
 		if (fd4 < 0)
@@ -1557,7 +1590,7 @@ static int net_open_any(void)
 	return 0;
 }
 
-static int net_open_known(const char *portstr)
+static int net_open_known(const char *portstr, bool is_status)
 {
 	int ipv6_found;
 	int rc;
@@ -1600,7 +1633,7 @@ static int net_open_known(const char *portstr)
 
 		rc = net_open_socket(res->ai_family, res->ai_socktype,
 				     res->ai_protocol, 
-				     res->ai_addrlen, res->ai_addr);
+				     res->ai_addrlen, res->ai_addr, is_status);
 		if (rc < 0)
 			goto err_out;
 		getnameinfo(res->ai_addr, res->ai_addrlen,
@@ -1613,8 +1646,6 @@ static int net_open_known(const char *portstr)
 	}
 
 	freeaddrinfo(res0);
-
-	tabled_srv.state_net = ST_NET_OPEN;
 	return 0;
 
 err_out:
@@ -1630,9 +1661,12 @@ static int net_open(void)
 	if (!strcmp(tabled_srv.port, "auto"))
 		rc = net_open_any();
 	else
-		rc = net_open_known(tabled_srv.port);
+		rc = net_open_known(tabled_srv.port, false);
 	if (rc)
 		return rc;
+
+	if (tabled_srv.status_port)
+		net_open_known(tabled_srv.status_port, true);
 
 	if (tabled_srv.port_file) {
 		rc = net_write_port(tabled_srv.port_file,

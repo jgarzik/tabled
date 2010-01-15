@@ -206,6 +206,25 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "StatusPort")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "StatusPort element empty");
+			return;
+		}
+
+		n = strtol(cc->text, NULL, 10);
+		if (n <= 0 || n >= 65536) {
+			applog(LOG_WARNING,
+			       "StatusPort '%s' invalid, ignoring", cc->text);
+			free(cc->text);
+			cc->text = NULL;
+			return;
+		}
+		free(tabled_srv.status_port);
+		tabled_srv.status_port = cc->text;
+		cc->text = NULL;
+	}
+
 	else if (!strcmp(element_name, "Listen")) {
 		cfg_elm_end_listen(cc);
 		cc->in_listen = false;

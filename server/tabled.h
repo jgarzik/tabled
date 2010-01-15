@@ -155,6 +155,7 @@ enum client_state {
 
 struct client {
 	enum client_state	state;		/* socket state */
+	cli_evt_func		*evt_table;
 
 	struct sockaddr_in6	addr;		/* inet address */
 	char			addr_host[64];	/* ASCII version of inet addr */
@@ -236,6 +237,7 @@ struct server {
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
 	unsigned short		rep_port;	/* db4 replication port */
+	char			*status_port;	/* status webserver */
 	char			*cell;		/* our cell (both T and Ch) */
 
 	char			*ourhost;	/* use this if DB master */
@@ -312,8 +314,9 @@ extern int debugging;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
 extern bool cli_err(struct client *cli, enum errcode code);
-extern bool cli_resp_xml(struct client *cli, int http_status,
-			 GList *content);
+extern bool cli_err_write(struct client *cli, char *hdr, char *content);
+extern bool cli_resp_xml(struct client *cli, int http_status, GList *content);
+extern bool cli_resp_html(struct client *cli, int http_status, GList *content);
 extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 		     cli_write_func cb, void *cb_data);
 extern size_t cli_wqueued(struct client *cli);
@@ -322,6 +325,9 @@ extern bool cli_write_start(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
 extern int stor_update_cb(void);
+
+/* status.c */
+extern bool stat_evt_http_req(struct client *cli, unsigned int events);
 
 /* config.c */
 extern void read_config(void);
@@ -356,6 +362,6 @@ extern void stor_parse(char *fname, const char *text, size_t len);
 /* replica.c */
 extern void rep_init(struct event_base *ev_base);
 extern void rep_start(void);
-extern void rep_stats(void);
+extern bool rep_status(struct client *cli, GList *content);
 
 #endif /* __TABLED_H__ */

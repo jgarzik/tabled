@@ -68,11 +68,14 @@ static struct rep_jobs done = { 0, LIST_HEAD_INIT(done.jlist) };
  */
 static struct event kscan_timer;	/* db4 key rescan timer */
 static time_t kscan_last;
+static bool kscan_running;
+static unsigned long kscan_cnt;
 
 /*
  * These are module-scope things: global locks and flags, thread list, etc.
  */
 static bool kscan_enabled = false;
+static GMutex *kscan_mutex;
 static GThread *scan_thread;
 
 static void job_dispatch(void);
@@ -746,7 +749,11 @@ static void rep_scan(struct rep_arg *arg)
 	start_time = time(NULL);
 	if (debugging)
 		applog(LOG_DEBUG, "key scan start time %lu", (long)start_time);
+	g_mutex_lock(kscan_mutex);
+	kscan_running = 1;
 	kscan_last = start_time;
+	kscan_cnt = 0;
+	g_mutex_unlock(kscan_mutex);
 
 	memset(&cur, 0, sizeof(struct cursor));	/* enough to construct */
 	cur.db_env = tdb.env;
@@ -757,7 +764,7 @@ static void rep_scan(struct rep_arg *arg)
 		/* FIXME: need to limit queing by some sane number like number of stn */
 		if (queue.njobs >= 100) {
 			/* P3 */ applog(LOG_INFO, "overload %u", queue.njobs);
-			return;
+			goto out;
 		}
 		if ((t = time(NULL)) >= start_time + 2) {
 			if (debugging)
@@ -789,6 +796,12 @@ static void rep_scan(struct rep_arg *arg)
 
 	if (debugging)
 		applog(LOG_DEBUG, "key scan done keys %lu", kcnt);
+
+out:
+	g_mutex_lock(kscan_mutex);
+	kscan_running = 0;
+	kscan_cnt = kcnt;
+	g_mutex_unlock(kscan_mutex);
 	return;
 }
 
@@ -836,6 +849,8 @@ void rep_init(struct event_base *ev_base)
 	GError *error;
 	struct rep_arg *arg;
 
+	kscan_mutex = g_mutex_new();
+
 	arg = malloc(sizeof(struct rep_arg));
 	if (!arg) {
 		applog(LOG_ERR, "No core");
@@ -856,12 +871,51 @@ void rep_start()
 	kscan_enabled = true;
 }
 
-void rep_stats()
+bool rep_status(struct client *cli, GList *content)
 {
 	time_t now;
+	char *str;
+	bool running;
+	unsigned long kcnt;
+	time_t last;
 
 	now = time(NULL);
-	applog(LOG_INFO, "REP queued %d active %d done %d last %lu (+ %ld)",
-	       queue.njobs, active.njobs, done.njobs,
-	       (long) kscan_last, (long) (now - kscan_last));
+
+	if (asprintf(&str,
+		     "<h2>Data replication</h2>\r\n"
+		     "<p>Jobs: queued %d active %d done %d</p>\r\n",
+		     queue.njobs, active.njobs, done.njobs) < 0)
+		return false;
+	content = g_list_append(content, str);
+
+	g_mutex_lock(kscan_mutex);
+	running = kscan_running;
+	last = kscan_last;
+	kcnt = kscan_cnt;
+	g_mutex_unlock(kscan_mutex);
+
+	if (running) {
+		if (asprintf(&str,
+			     "<p>Run started at %lu (%ld back),"
+			     " previous keys scanned %lu</p>\r\n",
+			     (long) last, (long) (now - last),
+			     kcnt) < 0)
+			return false;
+	} else {
+		if (last) {
+			if (asprintf(&str,
+				     "<p>Last run at %lu (%ld back),"
+				     " keys scanned %lu</p>\r\n",
+				     (long) last, (long) (now - last),
+				     kcnt) < 0)
+				return false;
+		} else {
+			if (asprintf(&str,
+				     "<p>No run data</p>\r\n") < 0)
+				return false;
+		}
+	}
+	content = g_list_append(content, str);
+
+	return true;
 }
