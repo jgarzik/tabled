@@ -158,7 +158,11 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	struct stat statb;
 	long n;
 
-	if (!strcmp(element_name, "PID") && cc->text) {
+	if (!strcmp(element_name, "PID")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "PID element empty");
+			return;
+		}
 		if (tabled_srv.pid_file) {
 			/* Silent about command line override. */
 			free(cc->text);
@@ -168,13 +172,22 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "ForceHost") && cc->text) {
+	else if (!strcmp(element_name, "ForceHost")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "ForceHost element empty");
+			return;
+		}
 		free(tabled_srv.ourhost);
 		tabled_srv.ourhost = cc->text;
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "TDB") && cc->text) {
+	else if (!strcmp(element_name, "TDB")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "TDB element empty");
+			return;
+		}
+
 		if (stat(cc->text, &statb) < 0) {
 			applog(LOG_ERR, "stat(2) on TDB '%s' failed: %s",
 			       cc->text, strerror(errno));
@@ -192,7 +205,12 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "TDBRepPort") && cc->text) {
+	else if (!strcmp(element_name, "TDBRepPort")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "TDBRepPort element empty");
+			return;
+		}
+
 		n = strtol(cc->text, NULL, 10);
 		if (n <= 0 || n >= 65536) {
 			applog(LOG_WARNING,
@@ -244,8 +262,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 
 		if (cc->in_listen) {
 			n = strtol(cc->text, NULL, 10);
-			if ((n > 0 && n < 65536) ||
-			    !strcmp(cc->text, "auto")) {
+			if ((n > 0 && n < 65536) || !strcmp(cc->text, "auto")) {
 				free(cc->tmp_listen.port);
 				cc->tmp_listen.port = cc->text;
 			} else {
@@ -306,13 +323,21 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "ChunkUser") && cc->text) {
+	else if (!strcmp(element_name, "ChunkUser")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "ChunkUser element empty");
+			return;
+		}
 		free(tabled_srv.chunk_user);
 		tabled_srv.chunk_user = cc->text;
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "ChunkKey") && cc->text) {
+	else if (!strcmp(element_name, "ChunkKey")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "ChunkKey element empty");
+			return;
+		}
 		free(tabled_srv.chunk_key);
 		tabled_srv.chunk_key = cc->text;
 		cc->text = NULL;
