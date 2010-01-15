@@ -53,6 +53,7 @@ struct cld_session {
 	struct cldc_udp *lib;		/* library state */
 	struct event lib_timer;
 	int retry_cnt;
+	int last_recv_err;
 
 	/*
 	 * For code sanity and being isomorphic with conventional programming
@@ -214,7 +215,16 @@ static void cldu_event(int fd, short events, void *userdata)
 
 	rc = cldc_udp_receive_pkt(sp->lib);
 	if (rc) {
-		applog(LOG_INFO, "cldc_udp_receive_pkt failed: %d", rc);
+		if (rc != sp->last_recv_err) {
+			if (rc < -1000)		/* our internal code */
+				applog(LOG_INFO,
+				       "cldc_udp_receive_pkt failed: %d", rc);
+			else
+				applog(LOG_INFO,
+				       "cldc_udp_receive_pkt failed: %s",
+				       strerror(-rc));
+			sp->last_recv_err = rc;
+		}
 		/*
 		 * Reacting to ICMP messages is a bad idea, because
 		 *  - it makes us loop hard in case CLD is down, unless we
