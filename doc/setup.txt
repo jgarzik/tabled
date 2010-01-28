@@ -41,15 +41,16 @@ emus3           IN      A       192.168.128.9
 *) Create/choose TDB data directory, where Berkeley DB stores
    data and metadata. Change this location with <TDB> tag.
 
-*) Assign the cell name:
+*) Assign the group name:
 
-	<Cell>ultracart3</Cell>
+	<Group>ultracart3</Group>
 
-   Currently, a tabled process scans its cell, finds all other tabled
+   Currently, a tabled process scans its group, finds all other tabled
    instances, and attempts to replicate its database to/from them.
-   In short, use one cell per business application.
+   In short, use one group per business application, and many groups
+   per one CLD cell.
 
-   Cell name defaults to "default", so you can leave this element unset,
+   Group name defaults to "default", so you can leave this element unset,
    but don't do it. Any name, even "qwerty", is better than the default.
 
 *) Select the port to listen, if desired. This is done using the <Listen>

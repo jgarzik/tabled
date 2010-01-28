@@ -361,14 +361,14 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 #endif
 
-	else if (!strcmp(element_name, "Cell")) {
+	else if (!strcmp(element_name, "Group")) {
 		if (!cc->text) {
-			applog(LOG_WARNING, "Cell element empty");
+			applog(LOG_WARNING, "Group element empty");
 			return;
 		}
 
-		free(tabled_srv.cell);
-		tabled_srv.cell = cc->text;
+		free(tabled_srv.group);
+		tabled_srv.group = cc->text;
 		cc->text = NULL;
 	}
 

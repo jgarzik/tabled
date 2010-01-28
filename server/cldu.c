@@ -67,17 +67,17 @@ struct cld_session {
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
 
-	char *thiscell;
+	char *thisgroup;
 	char *thishost;
 	struct event ev;	/* Associated with fd */
-	char *cfname;		/* /tabled-cell directory */
-	struct cldc_fh *cfh;	/* /tabled-cell directory, keep open for scan */
-	char *ffname;		/* /tabled-cell/thishost */
-	struct cldc_fh *ffh;	/* /tabled-cell/thishost, keep open for lock */
-	char *xfname;		/* /chunk-cell directory */
-	struct cldc_fh *xfh;	/* /chunk-cell directory */
-	char *yfname;		/* /chunk-cell/NID file */
-	struct cldc_fh *yfh;	/* /chunk-cell/NID file */
+	char *cfname;		/* /tabled-group directory */
+	struct cldc_fh *cfh;	/* /tabled-group directory, keep open for scan */
+	char *ffname;		/* /tabled-group/thishost */
+	struct cldc_fh *ffh;	/* /tabled-group/thishost, keep open for lock */
+	char *xfname;		/* /chunk-GROUP directory */
+	struct cldc_fh *xfh;	/* /chunk-GROUP directory */
+	char *yfname;		/* /chunk-GROUP/NID file */
+	struct cldc_fh *yfh;	/* /chunk-GROUP/NID file */
 
 	struct list_head chunks;	/* found in xfname, struct chunk_node */
 };
@@ -131,34 +131,34 @@ static int cldu_nextactive(struct cld_session *sp)
 }
 
 /*
- * Notice that for now we use the same cell name for both tabled and the
- * chunkservers that it uses, so this function only takes one cell argument.
+ * Notice that for now we use the same group name for both tabled and the
+ * chunkservers that it uses, so this function only takes one group argument.
  */
-static int cldu_setcell(struct cld_session *sp,
-			const char *thiscell, const char *thishost)
+static int cldu_setgroup(struct cld_session *sp,
+			const char *thisgroup, const char *thishost)
 {
 	char *mem;
 
-	if (thiscell == NULL) {
-		thiscell = "default";
+	if (thisgroup == NULL) {
+		thisgroup = "default";
 	}
 
-	sp->thiscell = strdup(thiscell);
-	if (!sp->thiscell)
+	sp->thisgroup = strdup(thisgroup);
+	if (!sp->thisgroup)
 		goto err_oom;
 	sp->thishost = strdup(thishost);
 	if (!sp->thishost)
 		goto err_oom;
 
-	if (asprintf(&mem, "/tabled-%s", thiscell) == -1)
+	if (asprintf(&mem, "/tabled-%s", thisgroup) == -1)
 		goto err_oom;
 	sp->cfname = mem;
 
-	if (asprintf(&mem, "/tabled-%s/%s", thiscell, thishost) == -1)
+	if (asprintf(&mem, "/tabled-%s/%s", thisgroup, thishost) == -1)
 		goto err_oom;
 	sp->ffname = mem;
 
-	if (asprintf(&mem, "/chunk-%s", thiscell) == -1)
+	if (asprintf(&mem, "/chunk-%s", thisgroup) == -1)
 		goto err_oom;
 	sp->xfname = mem;
 
@@ -761,7 +761,7 @@ static void next_chunk(struct cld_session *sp)
 
 	np = list_entry(sp->chunks.next, struct chunk_node, link);
 
-	if (asprintf(&mem, "/chunk-%s/%s", sp->thiscell, np->name) == -1) {
+	if (asprintf(&mem, "/chunk-%s/%s", sp->thisgroup, np->name) == -1) {
 		applog(LOG_WARNING, "OOM in cldu");
 		return;
 	}
@@ -946,7 +946,7 @@ void cld_init()
 /*
  * This initiates our sole session with a CLD instance.
  */
-int cld_begin(const char *thishost, const char *thiscell)
+int cld_begin(const char *thishost, const char *thisgroup)
 {
 	static struct cld_session *sp = &ses;
 
@@ -954,9 +954,9 @@ int cld_begin(const char *thishost, const char *thiscell)
 	evtimer_set(&ses.tm_rescan, cldu_tm_rescan, &ses);
 	evtimer_set(&ses.tm_reopen, cldu_tm_reopen, &ses);
 
-	if (cldu_setcell(sp, thiscell, thishost)) {
+	if (cldu_setgroup(sp, thisgroup, thishost)) {
 		/* Already logged error */
-		goto err_cell;
+		goto err_group;
 	}
 
 	if (!sp->forced_hosts) {
@@ -1003,7 +1003,7 @@ int cld_begin(const char *thishost, const char *thiscell)
 
 err_net:
 err_addr:
-err_cell:
+err_group:
 	return -1;
 }
 
@@ -1063,8 +1063,8 @@ void cld_end(void)
 	sp->xfname = NULL;
 	free(sp->yfname);
 	sp->yfname = NULL;
-	free(sp->thiscell);
-	sp->thiscell = NULL;
+	free(sp->thisgroup);
+	sp->thisgroup = NULL;
 	free(sp->thishost);
 	sp->thishost = NULL;
 }

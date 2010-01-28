@@ -237,7 +237,7 @@ struct server {
 	char			*chunk_key;	/* key for stc_new */
 	unsigned short		rep_port;	/* db4 replication port */
 	char			*status_port;	/* status webserver */
-	char			*cell;		/* our cell (both T and Ch) */
+	char			*group;		/* our group (both T and Ch) */
 
 	char			*ourhost;	/* use this if DB master */
 	struct database		*db;		/* database handle */
@@ -287,7 +287,7 @@ extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
 extern void cld_init(void);
-extern int cld_begin(const char *fqdn, const char *cell);
+extern int cld_begin(const char *fqdn, const char *group);
 extern void cldu_add_host(const char *host, unsigned int port);
 extern void cld_end(void);
 extern struct hail_log cldu_hail_log;
