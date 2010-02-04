@@ -226,6 +226,8 @@ struct server {
 	int			pid_fd;		/* fd of pid_file */
 	GMutex			*bigmutex;
 	struct event_base	*evbase_main;
+	int			ev_pipe[2];
+	struct event		pevt;
 
 	char			*config;	/* config file (static) */
 
@@ -248,7 +250,7 @@ struct server {
 	int			num_stor;	/* number of storage_node's  */
 	uint64_t		object_count;
 
-	enum st_tdb		state_tdb, state_tdb_new;
+	enum st_tdb		state_tdb;
 	enum st_net		state_net;
 
 	struct event		chkpt_timer;	/* db4 checkpoint timer */

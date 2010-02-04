@@ -89,7 +89,6 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
-static bool dump_stats;
 static bool use_syslog = true;
 int debugging = 0;
 
@@ -98,6 +97,12 @@ struct server tabled_srv = {
 };
 
 struct tabledb tdb;
+
+enum {
+	TT_CMD_DUMP,
+	TT_CMD_TDBST_MASTER,
+	TT_CMD_TDBST_SLAVE
+};
 
 struct compiled_pat patterns[] = {
 	[pat_auth] =
@@ -361,8 +366,8 @@ static void term_signal(int signo)
 
 static void stats_signal(int signo)
 {
-	dump_stats = true;
-	event_loopbreak();
+	static const unsigned char cmd = TT_CMD_DUMP;
+	write(tabled_srv.ev_pipe[1], &cmd, 1);
 }
 
 #define X(stat) \
@@ -1353,6 +1358,7 @@ static void tdb_checkpoint(int fd, short events, void *userdata)
 
 static void tdb_state_cb(enum db_event event)
 {
+	unsigned char cmd;
 
 	switch (event) {
 	case TDB_EV_ELECTED:
@@ -1369,25 +1375,20 @@ static void tdb_state_cb(enum db_event event)
 		 * This callback runs on the context of the replication
 		 * manager thread, and calling any of our functions thus
 		 * turns our program into a multi-threaded one. Instead
-		 * we do a loopbreak and postpone the processing.
+		 * we signal the main thread to do the processing.
 		 */
 		if (tabled_srv.state_tdb != ST_TDB_INIT &&
 		    tabled_srv.state_tdb != ST_TDB_OPEN) {
 			if (event == TDB_EV_MASTER)
-				tabled_srv.state_tdb_new = ST_TDB_MASTER;
+				cmd = TT_CMD_TDBST_MASTER;
 			else
-				tabled_srv.state_tdb_new = ST_TDB_SLAVE;
-			if (debugging) {
-				applog(LOG_DEBUG, "TDB state > %s",
-				       state_name_tdb[tabled_srv.state_tdb_new]);
-			}
-			event_loopbreak();
+				cmd = TT_CMD_TDBST_SLAVE;
+			write(tabled_srv.ev_pipe[1], &cmd, 1);
 		}
 		break;
 	default:
 		applog(LOG_WARNING, "API confusion with TDB, event 0x%x", event);
 		tabled_srv.state_tdb = ST_TDB_OPEN;  /* wrong, stub for now */
-		tabled_srv.state_tdb_new = ST_TDB_INIT;
 	}
 }
 
@@ -1727,6 +1728,8 @@ static void tdb_state_process(enum st_tdb new_state)
 {
 	unsigned int db_flags;
 
+	if (debugging)
+		applog(LOG_DEBUG, "TDB state > %s", state_name_tdb[new_state]);
 	if ((new_state == ST_TDB_MASTER || new_state == ST_TDB_SLAVE) &&
 	    tabled_srv.state_tdb == ST_TDB_ACTIVE) {
 
@@ -1741,6 +1744,46 @@ static void tdb_state_process(enum st_tdb new_state)
 		add_chkpt_timer();
 		rep_start();
 		net_listen();
+	}
+}
+
+static void internal_event(int fd, short events, void *userdata)
+{
+	unsigned char cmd;
+	ssize_t rrc;
+
+	rrc = read(tabled_srv.ev_pipe[0], &cmd, 1);
+	if (rrc < 0) {
+		applog(LOG_WARNING, "pipe read error: %s", strerror(errno));
+		abort();
+	}
+	if (rrc < 1) {
+		applog(LOG_WARNING, "pipe short read");
+		abort();
+	}
+
+	switch (cmd) {
+	case TT_CMD_DUMP:
+		stats_dump();
+		break;
+
+	case TT_CMD_TDBST_MASTER:
+		if (tabled_srv.state_tdb != ST_TDB_MASTER) {
+			tdb_state_process(ST_TDB_MASTER);
+			tabled_srv.state_tdb = ST_TDB_MASTER;
+		}
+		break;
+
+	case TT_CMD_TDBST_SLAVE:
+		if (tabled_srv.state_tdb != ST_TDB_SLAVE) {
+			tdb_state_process(ST_TDB_SLAVE);
+			tabled_srv.state_tdb = ST_TDB_SLAVE;
+		}
+		break;
+
+	default:
+		applog(LOG_WARNING, "%s BUG: command 0x%x", __func__, cmd);
+		break;
 	}
 }
 
@@ -1820,9 +1863,24 @@ int main (int argc, char *argv[])
 	signal(SIGTERM, term_signal);
 	signal(SIGUSR1, stats_signal);
 
+	/*
+	 * Prepare the libevent paraphernalia
+	 */
 	tabled_srv.evbase_main = event_init();
 	event_base_rep = event_base_new();
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
+
+	/* set up internal communication pipe */
+	if (pipe(tabled_srv.ev_pipe) < 0) {
+		applogerr("pipe");
+		goto err_evpipe;
+	}
+	event_set(&tabled_srv.pevt, tabled_srv.ev_pipe[0], EV_READ | EV_PERSIST,
+		  internal_event, NULL);
+	if (event_add(&tabled_srv.pevt, NULL) < 0) {
+		applog(LOG_WARNING, "pevt event_add");
+		goto err_pevt;
+	}
 
 	/* set up server networking */
 	rc = net_open();
@@ -1839,20 +1897,8 @@ int main (int argc, char *argv[])
 	applog(LOG_INFO, "initialized (%s)",
 	   (tabled_srv.flags & SFL_FOREGROUND)? "fg": "bg");
 
-	while (server_running) {
+	while (server_running)
 		event_dispatch();
-
-		if (dump_stats) {
-			dump_stats = false;
-			stats_dump();
-		}
-
-		if (tabled_srv.state_tdb_new != ST_TDB_INIT &&
-		    tabled_srv.state_tdb_new != tabled_srv.state_tdb) {
-			tdb_state_process(tabled_srv.state_tdb_new);
-			tabled_srv.state_tdb = tabled_srv.state_tdb_new;
-		}
-	}
 
 	applog(LOG_INFO, "shutting down");
 
@@ -1871,6 +1917,10 @@ err_out_net:
 		tdb_fini(&tdb);
 	}
 /* err_tdb_init: */
+err_pevt:
+	close(tabled_srv.ev_pipe[0]);
+	close(tabled_srv.ev_pipe[1]);
+err_evpipe:
 	unlink(tabled_srv.pid_file);
 	close(tabled_srv.pid_fd);
 err_out:
