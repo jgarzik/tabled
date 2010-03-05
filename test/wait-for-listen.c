@@ -133,9 +133,12 @@ int main()
  		 * Vote in DB4 replication takes about 12-13s.
 		 * In addition we may have retries when tabled polls for
 		 * Chunk daemons to come up. On busy boxes we may miss 20s.
+		 * So, 25s should be plenty, and we used that for a while,
+		 * but sometimes a daemon can fail establishing a session
+		 * with CLD and a retry takes a minute.
 		 */
-		if (time(NULL) >= start_time + 25) {
-			fprintf(stderr, "server is not up after 25 s\n");
+		if (time(NULL) >= start_time + 100) {
+			fprintf(stderr, "server is not up after 100 s\n");
 			exit(1);
 		}
 
@@ -159,6 +162,9 @@ int main()
 
 		sleep(2);
 	}
+
+	printf("      wait-for-listen: tabled went up after %ld s\n",
+	       (long)time(NULL) - start_time);
 	return 0;
 }
 
