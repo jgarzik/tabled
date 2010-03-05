@@ -266,24 +266,6 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "Type")) {
-		if (!cc->text) {
-			applog(LOG_WARNING,
-			       "%s: Type element empty", cc->fname);
-			return;
-		}
-
-		if (!strcmp(cc->text, "chunk")) {
-			;
-		} else if (!strcmp(cc->text, "chunk-ssl")) {
-			cc->stor_encrypt = true;
-		} else {
-			applog(LOG_WARNING, "%s: Type '%s' is invalid",
-			       cc->fname, cc->text);
-			return;
-		}
-	}
-
 	else if (!strcmp(element_name, "Port")) {
 		if (!cc->text) {
 			applog(LOG_WARNING, "Port element empty");
