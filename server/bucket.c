@@ -376,34 +376,49 @@ static int bucket_find(DB_TXN *txn, const char *bucket, char *owner,
  * Parse the uri_path and return bucket and path, strndup-ed.
  * Returns true iff succeeded. Else, bucket and path are unchanged.
  */
-bool bucket_base(const char *uri_path, char **pbucket, char **ppath)
+bool bucket_base(const char *uri_path, size_t uri_path_len,
+		 char **pbucket, char **ppath)
 {
 	const char *p;
 	char *bucket, *path;
 
-	if (*uri_path != '/')
+	if (!uri_path_len || *uri_path != '/')
 		return false;
-	uri_path++;
 
-	if (uri_path[0] == '\0') {
+	uri_path++;
+	uri_path_len--;
+
+	/* just a slash; no bucket, path == / */
+	if (uri_path_len == 0) {
 		bucket = NULL;
 		if ((path = strdup("/")) == NULL)
 			return false;
-	} else if ((p = strchr(uri_path, '/')) == NULL) {
-		if ((bucket = strdup(uri_path)) == NULL)
+	}
+	
+	/* no slash; just a bucket, no path, force path to / */
+	else if ((p = memchr(uri_path, '/', uri_path_len)) == NULL) {
+		if ((bucket = g_strndup(uri_path, uri_path_len)) == NULL)
 			return false;
 		if ((path = strdup("/")) == NULL) {	/* fake slash */
 			free(bucket);
 			return false;
 		}
-	} else {
-		if ((bucket = g_strndup(uri_path, p - uri_path)) == NULL)
+	}
+	
+	/* otherwise, bucket precedes first slash; path follows */
+	else {
+		size_t bucket_len = p - uri_path;
+
+		if ((bucket = g_strndup(uri_path, bucket_len)) == NULL)
 			return false;
-		if ((path = strdup(p)) == NULL) {	/* include slash */
+
+		/* include slash */
+		if ((path = g_strndup(p, uri_path_len - bucket_len)) == NULL) {
 			free(bucket);
 			return false;
 		}
 	}
+
 	*pbucket = bucket;
 	*ppath = path;
 	return true;

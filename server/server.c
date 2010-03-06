@@ -846,17 +846,19 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 
 	/* attempt to obtain bucket name from URI path */
 	if (!bucket)
-		buck_in_path = bucket_base(req->uri.path, &bucket, &path);
+		buck_in_path = bucket_base(req->uri.path, req->uri.path_len,
+					   &bucket, &path);
 	else
-		path = strdup(req->uri.path);
+		path = g_strndup(req->uri.path, req->uri.path_len);
 
 	if (!path)
 		path = strdup("/");
 	key = pathtokey(path);
 
 	if (debugging)
-		applog(LOG_INFO, "%s: method %s, path '%s', bucket '%s'",
-		       cli->addr_host, method, path, bucket);
+		applog(LOG_INFO,
+		       "%s: method %s, path '%s', key '%s', bucket '%s'",
+		       cli->addr_host, method, path, key, bucket);
 
 	if (auth) {
 		err = authcheck(&cli->req, buck_in_path? NULL: bucket, auth,
