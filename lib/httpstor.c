@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <curl/curl.h>
 #include <openssl/hmac.h>
 #include <libxml/tree.h>
@@ -443,9 +444,9 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 {
 	struct http_req req;
 	char datestr[80], timestr[64], hmac[64], auth[128], host[80],
-		url[80], *orig_path, *stmp;
+		url[80], *orig_path, *stmp, *uhdr_buf = NULL;
 	struct curl_slist *headers = NULL;
-	int rc;
+	int rc = -1;
 
 	if (asprintf(&stmp, "/%s/%s", bucket, key) < 0)
 		return false;
@@ -461,6 +462,51 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 
 	req_hdr_push(&req, "Date", timestr);
 
+	if (user_hdrs) {
+		int idx = 0;
+		size_t uhdr_len = 0, ukey_len;
+		void *p;
+		char *colon, *ukey, *uval;
+
+		/* 1. add to curl hdr list.  2. count hdr byte size */
+		while (user_hdrs[idx]) {
+			headers = curl_slist_append(headers, user_hdrs[idx]);
+			uhdr_len += strlen(user_hdrs[idx]) + 2;
+			idx++;
+		}
+
+		/* alloc buf to hold all hdr strings */
+		uhdr_buf = calloc(1, uhdr_len);
+		if (!uhdr_buf)
+			goto out;
+
+		/* copy and nul-terminate hdr keys and values for signing */
+		idx = 0;
+		p = uhdr_buf;
+		while (user_hdrs[idx]) {
+			ukey = p;
+			colon = strchr(user_hdrs[idx], ':');
+			if (colon) {
+				ukey_len = colon - user_hdrs[idx];
+				memcpy(ukey, user_hdrs[idx], ukey_len);
+				ukey[ukey_len] = 0;
+
+				p += ukey_len + 1;
+
+				colon++;
+				while (*colon && isspace(*colon))
+					colon++;
+
+				uval = p;
+				strcpy(uval, colon);
+				p += strlen(uval) + 1;
+
+				req_hdr_push(&req, ukey, uval);
+			}
+			idx++;
+		}
+	}
+
 	req_sign(&req, NULL, httpstor->key, hmac);
 
 	sprintf(auth, "Authorization: AWS %s:%s", httpstor->user, hmac);
@@ -470,15 +516,6 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 	headers = curl_slist_append(headers, host);
 	headers = curl_slist_append(headers, datestr);
 	headers = curl_slist_append(headers, auth);
-
-	if (user_hdrs) {
-		int idx = 0;
-
-		while (user_hdrs[idx]) {
-			headers = curl_slist_append(headers, user_hdrs[idx]);
-			idx++;
-		}
-	}
 
 	curl_easy_reset(httpstor->curl);
 	if (httpstor->verbose)
@@ -499,6 +536,8 @@ bool httpstor_put(struct httpstor_client *httpstor, const char *bucket, const ch
 	curl_slist_free_all(headers);
 	free(orig_path);
 
+out:
+	free(uhdr_buf);
 	return (rc == 0);
 }
 
