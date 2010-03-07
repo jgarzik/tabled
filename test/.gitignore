@@ -5,4 +5,5 @@ basic-object
 it-works
 large-object
 wait-for-listen
+hdr-content-type
 

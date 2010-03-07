@@ -24,11 +24,12 @@ TESTS =				\
 	basic-bucket		\
 	basic-object		\
 	large-object		\
+	hdr-content-type	\
 	stop-daemon		\
 	clean-db
 
 check_PROGRAMS		= basic-bucket basic-object it-works large-object \
-			  wait-for-listen
+			  hdr-content-type wait-for-listen
 
 TESTLDADD		= ../lib/libhttpstor.la	\
 			  ../lib/libhttputil.a	\
@@ -36,6 +37,7 @@ TESTLDADD		= ../lib/libhttpstor.la	\
 basic_bucket_LDADD	= $(TESTLDADD)
 basic_object_LDADD	= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
+hdr_content_type_LDADD	= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 
 wait_for_listen_LDADD	= ../lib/libhttputil.a
