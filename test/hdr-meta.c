@@ -29,12 +29,13 @@
 #include <httputil.h>
 #include "test.h"
 
-static char bucket[] = "test-hdr-ctt";
-static char key[] = "Key of HDR ctt test";
-static char value[] = "Value of HDR ctt test";
+static char bucket[] = "test-hdr-meta";
+static char key[] = "Key of HDR meta test";
+static char value[] = "Value of HDR meta test";
 
 static char *user_hdrs[] = {
-	"Content-type: text/x-tabled-test",
+	"x-amz-meta-test1: foo bar",
+	"x-amz-meta-test2: foo bar baz zonk zip",
 	NULL
 };
 
@@ -43,6 +44,7 @@ static void runtest(struct httpstor_client *httpstor)
 	bool rcb;
 	void *data = NULL;
 	size_t data_len = 0;
+	int idx;
 
 	rcb = httpstor_put_inline(httpstor, bucket, key,
 				  value, strlen(value) + 1, user_hdrs);
@@ -52,8 +54,13 @@ static void runtest(struct httpstor_client *httpstor)
 	OK(data);
 	OK(data_len > 0);
 
-	rcb = find_our_hdr(user_hdrs[0], data, data_len);
-	OK(rcb);
+	idx = 0;
+	while (user_hdrs[idx]) {
+		rcb = find_our_hdr(user_hdrs[idx], data, data_len);
+		OK(rcb);
+
+		idx++;
+	}
 
 	free(data);
 }

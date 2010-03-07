@@ -38,4 +38,6 @@
 		}				\
 	} while (0)
 
+extern bool find_our_hdr(const char *hdr, const void *data, size_t data_len);
+
 #endif /* __TABLED_TEST_H__ */
