@@ -406,7 +406,8 @@ struct storage_node *stor_node_by_nid(uint32_t nid)
 
 	g_mutex_lock(tabled_srv.bigmutex);
 	sn = _stor_node_by_nid(nid);
-	stor_node_get(sn);
+	if (sn)
+		stor_node_get(sn);
 	g_mutex_unlock(tabled_srv.bigmutex);
 	return sn;
 }
