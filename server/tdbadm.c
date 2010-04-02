@@ -189,7 +189,7 @@ static const GMarkupParser cfg_parse_ops = {
 	.text			= cfg_elm_text,
 };
 
-void read_config(void)
+static void read_config(void)
 {
 	GMarkupParseContext* parser;
 	char *text;

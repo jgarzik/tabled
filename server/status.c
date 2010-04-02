@@ -62,7 +62,7 @@ static const char stat_err_fmt1[] = {
 "</html>\r\n"
 };
 
-bool stat_err(struct client *cli, enum errcode code)
+static bool stat_err(struct client *cli, enum errcode code)
 {
 	char *hdr = NULL, *content = NULL;
 	int err_status;

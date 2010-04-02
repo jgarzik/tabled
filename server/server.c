@@ -796,8 +796,8 @@ bool cli_err_write(struct client *cli, char *hdr, char *content)
 	return cli_write_start(cli);
 }
 
-bool cli_resp(struct client *cli, int http_status, const char *content_type,
-	      GList *content)
+static bool cli_resp(struct client *cli, int http_status,
+		     const char *content_type, GList *content)
 {
 	int rc;
 	char *hdr, timestr[50];

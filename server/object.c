@@ -765,8 +765,9 @@ err:
 	return -1;
 }
 
-bool object_put_body(struct client *cli, const char *user, const char *bucket,
-		const char *key, long content_len, bool expect_cont)
+static bool object_put_body(struct client *cli, const char *user,
+			    const char *bucket, const char *key,
+			    long content_len, bool expect_cont)
 {
 	long avail;
 	uint64_t objid;
@@ -1058,8 +1059,8 @@ static void object_get_event(struct open_chunk *ochunk)
 	cli_write_run_compl(ochunk->cli);
 }
 
-bool object_get_body(struct client *cli, const char *user, const char *bucket,
-		       const char *key, bool want_body)
+static bool object_get_body(struct client *cli, const char *user,
+			    const char *bucket, const char *key, bool want_body)
 {
 	char *md5;
 	char timestr[64], modstr[64], *hdr, *tmp;
