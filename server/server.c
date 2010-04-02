@@ -370,21 +370,50 @@ static void stats_signal(int signo)
 	write(tabled_srv.ev_pipe[1], &cmd, 1);
 }
 
-#define X(stat) \
-	applog(LOG_INFO, "STAT %s %lu", #stat, tabled_srv.stats.stat)
-
 static void stats_dump(void)
 {
-	X(poll);
-	X(event);
-	X(tcp_accept);
-	X(opt_write);
-	applog(LOG_INFO, "State: TDB %s",
+	applog(LOG_INFO, "STATE: TDB %s",
 	    state_name_tdb[tabled_srv.state_tdb]);
+	applog(LOG_INFO,
+	       "STATS: poll %lu event %lu tcp_accept %lu opt_write %lu",
+	       tabled_srv.stats.poll,
+	       tabled_srv.stats.event,
+	       tabled_srv.stats.tcp_accept,
+	       tabled_srv.stats.opt_write);
 	stor_stats();
+	rep_stats();
 }
 
-#undef X
+bool stat_status(struct client *cli, GList *content)
+{
+	char *str;
+
+	/*
+	 * The loadavg is system dependent, we'll figure it out later.
+	 * On Linux, applications read from /proc/loadavg.
+	 */
+	if (asprintf(&str,
+		     "<h1>Status</h1>"
+		     "<p>Host %s port %s</p>\r\n",
+		     tabled_srv.ourhost, tabled_srv.port) < 0)
+		return false;
+	content = g_list_append(content, str);
+	if (asprintf(&str,
+		     "<p>State: TDB %s</p>\r\n",
+		     state_name_tdb[tabled_srv.state_tdb]) < 0)
+		return false;
+	content = g_list_append(content, str);
+	if (asprintf(&str,
+		     "<p>Stats: "
+		     "poll %lu event %lu tcp_accept %lu opt_write %lu</p>\r\n",
+		     tabled_srv.stats.poll,
+		     tabled_srv.stats.event,
+		     tabled_srv.stats.tcp_accept,
+		     tabled_srv.stats.opt_write) < 0)
+		return false;
+	content = g_list_append(content, str);
+	return true;
+}
 
 static bool cli_write_free(struct client *cli, struct client_write *tmp,
 			   bool done)

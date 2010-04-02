@@ -533,11 +533,53 @@ void stor_stats()
 	g_mutex_lock(tabled_srv.bigmutex);
 	now = time(NULL);
 	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
-		applog(LOG_INFO, "SN nid %u %s last %lu (+ %ld) ref %d name %s",
-		       sn->id, sn->up? "up": "down",
-		       (long) sn->last_up, (long) (now - sn->last_up),
-		       sn->ref, sn->hostname);
+		if (sn->last_up) {
+			applog(LOG_INFO,
+			       "SN: nid %u %s ref %d name %s last %lu (+ %ld)",
+			       sn->id, sn->up? "up": "down",
+			       sn->ref, sn->hostname,
+			       (long) sn->last_up, (long) (now - sn->last_up));
+		} else {
+			applog(LOG_INFO,
+			       "SN: nid %u %s ref %d name %s",
+			       sn->id, sn->up? "up": "down",
+			       sn->ref, sn->hostname);
+		}
 	}
 	g_mutex_unlock(tabled_srv.bigmutex);
+}
+
+bool stor_status(struct client *cli, GList *content)
+{
+	struct storage_node *sn;
+	static char tag_down[] =
+		"<span style=\"background-color:red\">down</span>";
+	time_t now;
+	char *str;
+	int rc;
+
+	g_mutex_lock(tabled_srv.bigmutex);
+	now = time(NULL);
+	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
+		if (sn->last_up) {
+			rc = asprintf(&str,
+				     "SN: nid %u %s ref %d name %s"
+				     " last %lu (+ %ld)<br />\r\n",
+				     sn->id, sn->up? "up": tag_down,
+				     sn->ref, sn->hostname,
+				     (long) sn->last_up,
+				     (long) (now - sn->last_up));
+		} else {
+			rc = asprintf(&str,
+				     "SN: nid %u %s ref %d name %s<br />\r\n",
+				     sn->id, sn->up? "up": tag_down,
+				     sn->ref, sn->hostname);
+		}
+		if (rc < 0)
+			break;
+		content = g_list_append(content, str);
+	}
+	g_mutex_unlock(tabled_srv.bigmutex);
+	return true;
 }
 

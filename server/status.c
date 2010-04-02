@@ -114,25 +114,6 @@ out:
 	return false;
 }
 
-static bool stat_status(struct client *cli, GList *content)
-{
-	char *str;
-
-	/*
-	 * The loadavg is system dependent, we'll figure it out later.
-	 * On Linux, applications read from /proc/loadavg.
-	 */
-	if (asprintf(&str,
-		     "<h1>Status</h1>"
-		     "<p>Host %s port %s</p>\r\n"
-		     "<p>Stats: poll %lu event %lu</p>\r\n",
-		     tabled_srv.ourhost, tabled_srv.port,
-		     tabled_srv.stats.poll, tabled_srv.stats.event) < 0)
-		return false;
-	content = g_list_append(content, str);
-	return true;
-}
-
 static bool stat_root(struct client *cli)
 {
 	GList *content = NULL;
@@ -149,7 +130,8 @@ static bool stat_root(struct client *cli)
 
 	if (!stat_status(cli, content))
 		goto out_err;
-
+	if (!stor_status(cli, content))
+		goto out_err;
 	if (!rep_status(cli, content))
 		goto out_err;
 

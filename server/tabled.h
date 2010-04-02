@@ -315,6 +315,7 @@ extern void req_sign(struct http_req *req, const char *bucket, const char *key,
 extern int debugging;
 extern struct server tabled_srv;
 extern struct compiled_pat patterns[];
+extern bool stat_status(struct client *cli, GList *content);
 extern bool cli_err(struct client *cli, enum errcode code);
 extern bool cli_err_write(struct client *cli, char *hdr, char *content);
 extern bool cli_resp_xml(struct client *cli, int http_status, GList *content);
@@ -357,6 +358,7 @@ extern void stor_add_node(uint32_t nid, const char *hostname,
 			  const char *portstr, struct geo *locp);
 extern int stor_node_check(struct storage_node *stn);
 extern void stor_stats(void);
+extern bool stor_status(struct client *cli, GList *content);
 
 /* storparse.c */
 extern void stor_parse(char *fname, const char *text, size_t len);
@@ -364,6 +366,7 @@ extern void stor_parse(char *fname, const char *text, size_t len);
 /* replica.c */
 extern void rep_init(struct event_base *ev_base);
 extern void rep_start(void);
+extern void rep_stats(void);
 extern bool rep_status(struct client *cli, GList *content);
 
 #endif /* __TABLED_H__ */

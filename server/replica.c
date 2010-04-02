@@ -871,6 +871,34 @@ void rep_start()
 	kscan_enabled = true;
 }
 
+void rep_stats()
+{
+	bool running;
+	unsigned long kcnt;
+	time_t last;
+
+	applog(LOG_INFO, "REP: Jobs: queued %d active %d done %d",
+	       queue.njobs, active.njobs, done.njobs);
+
+	g_mutex_lock(kscan_mutex);
+	running = kscan_running;
+	last = kscan_last;
+	kcnt = kscan_cnt;
+	g_mutex_unlock(kscan_mutex);
+
+	if (running) {
+		applog(LOG_INFO, "REP: run Active started %lu scanned %lu",
+		      (long) last, kcnt);
+	} else {
+		if (last)
+			applog(LOG_INFO,
+			       "REP: run Done started %lu scanned %lu",
+			       (long) last, kcnt);
+		else
+			applog(LOG_INFO, "REP: run None");
+	}
+}
+
 bool rep_status(struct client *cli, GList *content)
 {
 	time_t now;
