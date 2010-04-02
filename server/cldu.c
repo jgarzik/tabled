@@ -159,7 +159,7 @@ static void cldu_tm_rescan(int fd, short events, void *userdata)
 	if (sp->is_dead) {
 		ncld_sess_close(sp->nsp);
 		sp->nsp = NULL;
-		sp->is_dead = 0;
+		sp->is_dead = false;
 		newactive = cldu_nextactive(sp);
 		if (cldu_set_cldc(sp, newactive)) {
 			evtimer_add(&sp->tm_rescan, &cldu_rescan_delay);
