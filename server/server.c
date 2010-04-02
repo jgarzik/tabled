@@ -380,6 +380,8 @@ static void stats_dump(void)
 	       tabled_srv.stats.event,
 	       tabled_srv.stats.tcp_accept,
 	       tabled_srv.stats.opt_write);
+	applog(LOG_INFO, "DEBUG: max_write_buf %lu",
+	       tabled_srv.stats.max_write_buf);
 	stor_stats();
 	rep_stats();
 }
@@ -405,14 +407,22 @@ bool stat_status(struct client *cli, GList *content)
 	content = g_list_append(content, str);
 	if (asprintf(&str,
 		     "<p>Stats: "
-		     "poll %lu event %lu tcp_accept %lu opt_write %lu</p>\r\n",
+		     "poll %lu event %lu tcp_accept %lu opt_write %lu</p>\r\n"
+		     "<p>Debug: max_write_buf %lu</p>\r\n",
 		     tabled_srv.stats.poll,
 		     tabled_srv.stats.event,
 		     tabled_srv.stats.tcp_accept,
-		     tabled_srv.stats.opt_write) < 0)
+		     tabled_srv.stats.opt_write,
+		     tabled_srv.stats.max_write_buf) < 0)
 		return false;
 	content = g_list_append(content, str);
 	return true;
+}
+
+static void cli_write_complete(struct client *cli, struct client_write *tmp)
+{
+	list_del(&tmp->node);
+	list_add_tail(&tmp->node, &cli->write_compl_q);
 }
 
 static bool cli_write_free(struct client *cli, struct client_write *tmp,
@@ -433,9 +443,26 @@ static void cli_write_free_all(struct client *cli)
 {
 	struct client_write *wr, *tmp;
 
+	list_for_each_entry_safe(wr, tmp, &cli->write_compl_q, node) {
+		cli_write_free(cli, wr, true);
+	}
 	list_for_each_entry_safe(wr, tmp, &cli->write_q, node) {
 		cli_write_free(cli, wr, false);
 	}
+}
+
+bool cli_write_run_compl(struct client *cli)
+{
+	struct client_write *wr;
+	bool do_loop;
+
+	do_loop = false;
+	while (!list_empty(&cli->write_compl_q)) {
+		wr = list_entry(cli->write_compl_q.next, struct client_write,
+				node);
+		do_loop |= cli_write_free(cli, wr, true);
+	}
+	return do_loop;
 }
 
 static void cli_free(struct client *cli)
@@ -454,6 +481,9 @@ static void cli_free(struct client *cli)
 	}
 
 	req_free(&cli->req);
+
+	if (cli->write_cnt_max > tabled_srv.stats.max_write_buf)
+		tabled_srv.stats.max_write_buf = cli->write_cnt_max;
 
 	if (debugging)
 		applog(LOG_INFO, "client %s ended", cli->addr_host);
@@ -505,10 +535,6 @@ static void cli_writable(struct client *cli)
 	struct client_write *tmp;
 	ssize_t rc;
 	struct iovec iov[CLI_MAX_WR_IOV];
-	bool more_work;
-
-restart:
-	more_work = false;
 
 	/* accumulate pending writes into iovec */
 	n_iov = 0;
@@ -548,15 +574,12 @@ do_write:
 		rc -= sz;
 
 		/* if tmp->len reaches zero, write is complete,
-		 * call callback and clean up
+		 * so schedule it for clean up (cannot call callback
+		 * right away or an endless recursion will result)
 		 */
 		if (tmp->togo == 0)
-			if (cli_write_free(cli, tmp, true))
-				more_work = true;
+			cli_write_complete(cli, tmp);
 	}
-
-	if (more_work)
-		goto restart;
 
 	/* if we emptied the queue, clear write notification */
 	if (list_empty(&cli->write_q)) {
@@ -622,6 +645,8 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	wr->cb_data = cb_data;
 	list_add_tail(&wr->node, &cli->write_q);
 	cli->write_cnt += buflen;
+	if (cli->write_cnt > cli->write_cnt_max)
+		cli->write_cnt_max = cli->write_cnt;
 
 	return 0;
 }
@@ -1275,6 +1300,7 @@ static struct client *cli_alloc(bool is_status)
 	cli->state = evt_read_req;
 	cli->evt_table = is_status? evt_funcs_status: evt_funcs_server;
 	INIT_LIST_HEAD(&cli->write_q);
+	INIT_LIST_HEAD(&cli->write_compl_q);
 	INIT_LIST_HEAD(&cli->out_ch);
 	cli->req_ptr = cli->req_buf;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
@@ -1287,6 +1313,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 	struct client *cli = userdata;
 
 	cli_writable(cli);
+	cli_write_run_compl(cli);
 }
 
 static void tcp_cli_event(int fd, short events, void *userdata)
@@ -1296,6 +1323,7 @@ static void tcp_cli_event(int fd, short events, void *userdata)
 
 	do {
 		loop = cli->evt_table[cli->state](cli, events);
+		loop |= cli_write_run_compl(cli);
 	} while (loop);
 }
 

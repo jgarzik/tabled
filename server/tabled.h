@@ -164,8 +164,11 @@ struct client {
 	struct event		write_ev;
 
 	struct list_head	write_q;	/* list of async writes */
+	struct list_head	write_compl_q;	/* list of done writes */
 	size_t			write_cnt;	/* water level */
 	bool			writing;
+	/* some debugging stats */
+	size_t			write_cnt_max;
 
 	unsigned int		req_used;	/* amount of req_buf in use */
 	char			*req_ptr;	/* start of unexamined data */
@@ -212,6 +215,8 @@ struct server_stats {
 	unsigned long		event;		/* events dispatched */
 	unsigned long		tcp_accept;	/* TCP accepted cxns */
 	unsigned long		opt_write;	/* optimistic writes */
+
+	unsigned long		max_write_buf;
 };
 
 struct listen_cfg {
@@ -325,6 +330,7 @@ extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 extern size_t cli_wqueued(struct client *cli);
 extern bool cli_cb_free(struct client *cli, void *cb_data, bool done);
 extern bool cli_write_start(struct client *cli);
+extern bool cli_write_run_compl(struct client *cli);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
 extern int stor_update_cb(void);

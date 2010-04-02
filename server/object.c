@@ -994,6 +994,9 @@ static bool object_get_poke(struct client *cli)
 	char *buf;
 	ssize_t bytes;
 
+	/* XXX flow control - what treshold? */
+	/*  if (cli_wqueued(cli) >= 1000000000) return false; */
+
 	buf = malloc(CLI_DATA_BUF_SZ);
 	if (!buf)
 		return false;
@@ -1052,6 +1055,7 @@ static bool object_get_more(struct client *cli, void *cb_data, bool done)
 static void object_get_event(struct open_chunk *ochunk)
 {
 	object_get_poke(ochunk->cli);
+	cli_write_run_compl(ochunk->cli);
 }
 
 bool object_get_body(struct client *cli, const char *user, const char *bucket,
