@@ -348,15 +348,6 @@ ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t req_len)
 	return ret;
 }
 
-void stor_get_enable(struct open_chunk *cep)
-{
-	if (!cep->stc) {	/* never happens */
-		applog(LOG_ERR, "Unopened chunk in stor_get_enable");
-		return;
-	}
-
-}
-
 int stor_obj_del(struct storage_node *stn, uint64_t key)
 {
 	struct st_client *stc;
