@@ -74,7 +74,7 @@ static bool stat_err(struct client *cli, enum errcode code)
 	 * We do not use all codes that the main server can return,
 	 * so our array is smaller and it has gaps. Must check, in case.
 	 */
-	if (code < 0 || code >= ARRAY_SIZE(err_info) || !err_info[code].code) {
+	if (code >= ARRAY_SIZE(err_info) || !err_info[code].code) {
 		applog(LOG_INFO, "client %s status error %d",
 		       cli->addr_host, code);
 		code = InternalError;
