@@ -176,8 +176,11 @@ static void cldu_sess_event(void *priv, uint32_t what)
 	struct cld_session *sp = priv;
 
 	if (what == CE_SESS_FAILED) {
-		applog(LOG_ERR, "Session failed, sid " SIDFMT,
-			       SIDARG(sp->nsp->udp->sess->sid));
+		if (sp->nsp)
+			applog(LOG_ERR, "Session failed, sid " SIDFMT,
+				       SIDARG(sp->nsp->udp->sess->sid));
+		else
+			applog(LOG_ERR, "Session open failed");
 		sp->is_dead = true;
 	} else {
 		if (sp->nsp)
