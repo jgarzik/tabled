@@ -82,7 +82,7 @@ static void add_chunk_node(struct cld_session *sp, const char *name);
 
 static struct timeval cldu_rescan_delay = { 50, 0 };
 
-struct hail_log cldu_hail_log = {
+static struct hail_log cldu_hail_log = {
 	.func		= applog,
 };
 
@@ -226,7 +226,8 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		       hp->host, hp->port);
 
 	sp->nsp = ncld_sess_open(hp->host, hp->port, &error,
-				 cldu_sess_event, sp, "tabled", "tabled");
+				 cldu_sess_event, sp, "tabled", "tabled",
+				 &cldu_hail_log);
 	if (sp->nsp == NULL) {
 		if (error < 1000) {
 			applog(LOG_ERR, "ncld_sess_open(%s,%u) error: %s",
@@ -584,11 +585,13 @@ void cld_init()
 /*
  * This initiates our sole session with a CLD instance.
  */
-int cld_begin(const char *thishost, const char *thisgroup)
+int cld_begin(const char *thishost, const char *thisgroup, int verbose)
 {
 	static struct cld_session *sp = &ses;
 	struct timespec tm;
 	int retry_cnt;
+
+	cldu_hail_log.verbose = verbose;
 
 	evtimer_set(&ses.tm_rescan, cldu_tm_rescan, &ses);
 

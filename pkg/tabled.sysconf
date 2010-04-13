@@ -2,5 +2,5 @@
 #
 
 #example: 
-#OPTS="--debug"
+#OPTS="--debug 1"
 

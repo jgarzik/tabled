@@ -70,8 +70,8 @@ struct server_socket {
 static struct argp_option options[] = {
 	{ "config", 'C', "/etc/tabled.conf", 0,
 	  "Configuration file" },
-	{ "debug", 'D', NULL, 0,
-	  "Enable debug output" },
+	{ "debug", 'D', "LEVEL", 0,
+	  "Set debug output to LEVEL (0 = off, 2 = max)" },
 	{ "stderr", 'E', NULL, 0,
 	  "Switch the log to standard error" },
 	{ "pid", 'P', "FILE", 0,
@@ -90,6 +90,7 @@ static const struct argp argp = { options, parse_opt, NULL, doc };
 
 static bool server_running = true;
 static bool use_syslog = true;
+static int verbose = 0;
 int debugging = 0;
 
 struct server tabled_srv = {
@@ -176,12 +177,22 @@ static struct {
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state)
 {
+	int v;
+
 	switch(key) {
 	case 'C':
 		tabled_srv.config = arg;
 		break;
 	case 'D':
-		debugging = 1;
+		v = atoi(arg);
+		if (v < 0 || v > 2) {
+			fprintf(stderr, "invalid debug level: '%s'\n", arg);
+			argp_usage(state);
+		}
+		if (v >= 1)
+			debugging = 1;
+		if (v >= 2)
+			verbose = 1;
 		break;
 	case 'E':
 		use_syslog = false;
@@ -1886,8 +1897,7 @@ int main (int argc, char *argv[])
 	if (use_syslog)
 		openlog(PROGRAM_NAME, LOG_PID, LOG_LOCAL3);
 	if (debugging)
-		applog(LOG_INFO, "Verbose debug output enabled");
-	cldu_hail_log.verbose = debugging;
+		applog(LOG_INFO, "Debug output enabled");
 
 	/*
 	 * now we can parse the configuration, errors to applog
@@ -1946,7 +1956,7 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_net;
 
-	if (cld_begin(tabled_srv.ourhost, tabled_srv.group) != 0) {
+	if (cld_begin(tabled_srv.ourhost, tabled_srv.group, verbose) != 0) {
 		rc = 1;
 		goto err_cld_session;
 	}

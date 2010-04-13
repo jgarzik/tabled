@@ -295,10 +295,9 @@ extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
 extern void cld_init(void);
-extern int cld_begin(const char *fqdn, const char *group);
+extern int cld_begin(const char *fqdn, const char *group, int verbose);
 extern void cldu_add_host(const char *host, unsigned int port);
 extern void cld_end(void);
-extern struct hail_log cldu_hail_log;
 
 /* util.c */
 extern size_t strlist_len(GList *l);
