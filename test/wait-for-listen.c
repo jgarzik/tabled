@@ -83,7 +83,7 @@ static int node_resolve(struct server_node *sn,
 	return -1;
 }
 
-int main()
+int main(int argc, char **argv)
 {
 	struct server_node snode, *sn = &snode;
 	time_t start_time;
