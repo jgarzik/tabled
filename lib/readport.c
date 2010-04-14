@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <httputil.h>
 
 /*
  * Read a port number from a port file, fill buffer.

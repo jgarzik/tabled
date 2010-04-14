@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include "test.h"
 
 bool find_our_hdr(const char *hdr, const void *data, size_t data_len)
 {
