@@ -38,7 +38,12 @@ enum {
 
 static void db4syslog(const DB_ENV *dbenv, const char *errpfx, const char *msg)
 {
-	syslog(LOG_WARNING, "%s: %s", errpfx, msg);
+	/*
+	 * Since we use syslog, we discard the prefix set in tdb_init,
+	 * because syslog adds our own prefix too. The errpfx would be
+	 * useful if we weren't dumping to syslog here.
+	 */
+	syslog(LOG_WARNING, "%s", msg);
 }
 
 static int buckets_owner_idx(DB *secondary, const DBT *pkey, const DBT *pdata,
