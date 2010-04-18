@@ -184,6 +184,10 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 		tabled_srv.config = arg;
 		break;
 	case 'D':
+		if (arg[0] == '-') {
+			fprintf(stderr, "Option -D requires an argument\n");
+			argp_usage(state);
+		}
 		v = atoi(arg);
 		if (v < 0 || v > 2) {
 			fprintf(stderr, "invalid debug level: '%s'\n", arg);
