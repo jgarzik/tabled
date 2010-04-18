@@ -489,26 +489,13 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 int stor_node_check(struct storage_node *stn)
 {
 	struct st_client *stc;
-	char host[41];
-	char port[6];
 	int rc;
 
 	rc = stor_new_stc(stn, &stc);
 	if (rc < 0) {
-		if (rc == -EINVAL) {
-			if (getnameinfo((struct sockaddr *) &stn->addr,
-					stn->alen, host, sizeof(host),
-					port, sizeof(port),
-					NI_NUMERICHOST|NI_NUMERICSERV) == 0) {
-				applog(LOG_INFO, "Error connecting to chunkd"
-				       " on host %s port %s",
-				       host, port);
-			} else {
-				applog(LOG_INFO, "Error connecting to chunkd");
-			}
-		} else {
-			applog(LOG_INFO, "Error %d connecting to chunkd", rc);
-		}
+		applog(LOG_INFO,
+		       "Error %d connecting to chunkd on host %s",
+		       rc, stn->hostname);
 		return -1;
 	}
 

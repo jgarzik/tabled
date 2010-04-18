@@ -96,7 +96,7 @@ struct storage_node {
 
 	unsigned		alen;
 	struct sockaddr_in6	addr;
-	char *hostname;		/* Only used because stc_new is overly smart. */
+	char			*hostname;
 
 	int ref;		/* number of open_chunk or other */
 };
