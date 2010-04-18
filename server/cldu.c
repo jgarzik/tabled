@@ -157,14 +157,16 @@ static void cldu_tm_rescan(int fd, short events, void *userdata)
 		applog(LOG_DEBUG, "Rescanning for Chunks in %s", sp->xfname);
 
 	if (sp->is_dead) {
-		ncld_sess_close(sp->nsp);
-		sp->nsp = NULL;
-		sp->is_dead = false;
+		if (sp->nsp) {
+			ncld_sess_close(sp->nsp);
+			sp->nsp = NULL;
+		}
 		newactive = cldu_nextactive(sp);
 		if (cldu_set_cldc(sp, newactive)) {
 			evtimer_add(&sp->tm_rescan, &cldu_rescan_delay);
 			return;
 		}
+		sp->is_dead = false;
 	}
 
 	scan_chunks(sp);
@@ -589,6 +591,7 @@ int cld_begin(const char *thishost, const char *thisgroup, int verbose)
 {
 	static struct cld_session *sp = &ses;
 	struct timespec tm;
+	int newactive;
 	int retry_cnt;
 
 	cldu_hail_log.verbose = verbose;
@@ -635,9 +638,15 @@ int cld_begin(const char *thishost, const char *thisgroup, int verbose)
 	 * -- Actually, it only works when recovering from CLD failure.
 	 *    Thereafter, any slave CLD redirects us to the master.
 	 */
-	if (cldu_set_cldc(sp, 0)) {
+	newactive = 0;
+	retry_cnt = 0;
+	for (;;) {
+		if (!cldu_set_cldc(sp, newactive))
+			break;
 		/* Already logged error */
-		goto err_net;
+		if (++retry_cnt == 5)
+			goto err_net;
+		newactive = cldu_nextactive(sp);
 	}
 
 	retry_cnt = 0;
