@@ -671,6 +671,12 @@ size_t cli_wqueued(struct client *cli)
 	return cli->write_cnt;
 }
 
+/*
+ * Return:
+ *   0: progress was NOT made (EOF)
+ *  >0: some data was gotten
+ *  <0: an error happened (equals to system error * -1; includes -EAGAIN)
+ */
 static int cli_read(struct client *cli)
 {
 	ssize_t rc;
@@ -682,8 +688,6 @@ do_read:
 	if (rc < 0) {
 		if (errno == EINTR)
 			goto do_read;
-		if (errno == EAGAIN)
-			return 0;
 		return -errno;
 	}
 
@@ -699,7 +703,7 @@ do_read:
 	if (cli->req_used == CLI_REQ_BUF_SZ)
 		return -ENOSPC;
 
-	return 0;
+	return rc != 0;
 }
 
 bool cli_cb_free(struct client *cli, void *cb_data, bool done)
@@ -1186,9 +1190,11 @@ static bool cli_evt_parse_hdr(struct client *cli, unsigned int events)
 static bool cli_evt_read_hdr(struct client *cli, unsigned int events)
 {
 	int rc = cli_read(cli);
-	if (rc < 0) {
+	if (rc <= 0) {
 		if (rc == -ENOSPC)
 			return cli_err(cli, InvalidArgument);
+		if (rc == -EAGAIN)
+			return false;
 
 		cli->state = evt_dispose;
 	} else
@@ -1268,9 +1274,11 @@ err_out:
 static bool cli_evt_read_req(struct client *cli, unsigned int events)
 {
 	int rc = cli_read(cli);
-	if (rc < 0) {
+	if (rc <= 0) {
 		if (rc == -ENOSPC)
 			return cli_err(cli, InvalidArgument);
+		if (rc == -EAGAIN)
+			return false;
 
 		cli->state = evt_dispose;
 	} else
