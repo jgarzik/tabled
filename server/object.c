@@ -1056,7 +1056,7 @@ static bool object_get_more(struct client *cli, void *cb_data, bool done)
 static void object_get_event(struct open_chunk *ochunk)
 {
 	object_get_poke(ochunk->cli);
-	cli_write_run_compl(ochunk->cli);
+	cli_write_run_compl();
 }
 
 static bool object_get_body(struct client *cli, const char *user,

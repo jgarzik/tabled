@@ -69,7 +69,6 @@ enum errcode {
 };
 
 struct client;
-struct client_write;
 
 enum {
 	pat_auth,
@@ -111,6 +110,7 @@ struct client_write {
 	int			length;		/* length for accounting */
 	cli_write_func		cb;		/* callback */
 	void			*cb_data;	/* data passed to cb */
+	struct client		*cb_cli;	/* cli passed to cb */
 
 	struct list_head	node;
 };
@@ -164,7 +164,6 @@ struct client {
 	struct event		write_ev;
 
 	struct list_head	write_q;	/* list of async writes */
-	struct list_head	write_compl_q;	/* list of done writes */
 	size_t			write_cnt;	/* water level */
 	bool			writing;
 	/* some debugging stats */
@@ -233,6 +232,7 @@ struct server {
 	struct event_base	*evbase_main;
 	int			ev_pipe[2];
 	struct event		pevt;
+	struct list_head	write_compl_q;	/* list of done writes */
 
 	char			*config;	/* config file (static) */
 
@@ -329,7 +329,7 @@ extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 extern size_t cli_wqueued(struct client *cli);
 extern bool cli_cb_free(struct client *cli, void *cb_data, bool done);
 extern bool cli_write_start(struct client *cli);
-extern bool cli_write_run_compl(struct client *cli);
+extern bool cli_write_run_compl(void);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
 extern int stor_update_cb(void);

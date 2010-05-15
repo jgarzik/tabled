@@ -437,12 +437,12 @@ bool stat_status(struct client *cli, GList *content)
 static void cli_write_complete(struct client *cli, struct client_write *tmp)
 {
 	list_del(&tmp->node);
-	list_add_tail(&tmp->node, &cli->write_compl_q);
+	list_add_tail(&tmp->node, &tabled_srv.write_compl_q);
 }
 
-static bool cli_write_free(struct client *cli, struct client_write *tmp,
-			   bool done)
+static bool cli_write_free(struct client_write *tmp, bool done)
 {
+	struct client *cli = tmp->cb_cli;
 	bool rcb = false;
 
 	cli->write_cnt -= tmp->length;
@@ -458,24 +458,22 @@ static void cli_write_free_all(struct client *cli)
 {
 	struct client_write *wr, *tmp;
 
-	list_for_each_entry_safe(wr, tmp, &cli->write_compl_q, node) {
-		cli_write_free(cli, wr, true);
-	}
+	cli_write_run_compl();
 	list_for_each_entry_safe(wr, tmp, &cli->write_q, node) {
-		cli_write_free(cli, wr, false);
+		cli_write_free(wr, false);
 	}
 }
 
-bool cli_write_run_compl(struct client *cli)
+bool cli_write_run_compl(void)
 {
 	struct client_write *wr;
 	bool do_loop;
 
 	do_loop = false;
-	while (!list_empty(&cli->write_compl_q)) {
-		wr = list_entry(cli->write_compl_q.next, struct client_write,
-				node);
-		do_loop |= cli_write_free(cli, wr, true);
+	while (!list_empty(&tabled_srv.write_compl_q)) {
+		wr = list_entry(tabled_srv.write_compl_q.next,
+				struct client_write, node);
+		do_loop |= cli_write_free(wr, true);
 	}
 	return do_loop;
 }
@@ -658,6 +656,7 @@ int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
 	wr->length = buflen;
 	wr->cb = cb;
 	wr->cb_data = cb_data;
+	wr->cb_cli = cli;
 	list_add_tail(&wr->node, &cli->write_q);
 	cli->write_cnt += buflen;
 	if (cli->write_cnt > cli->write_cnt_max)
@@ -1323,7 +1322,6 @@ static struct client *cli_alloc(bool is_status)
 	cli->state = evt_read_req;
 	cli->evt_table = is_status? evt_funcs_status: evt_funcs_server;
 	INIT_LIST_HEAD(&cli->write_q);
-	INIT_LIST_HEAD(&cli->write_compl_q);
 	INIT_LIST_HEAD(&cli->out_ch);
 	cli->req_ptr = cli->req_buf;
 	memset(&cli->req, 0, sizeof(cli->req) - sizeof(cli->req.hdr));
@@ -1336,7 +1334,7 @@ static void tcp_cli_wr_event(int fd, short events, void *userdata)
 	struct client *cli = userdata;
 
 	cli_writable(cli);
-	cli_write_run_compl(cli);
+	cli_write_run_compl();
 }
 
 static void tcp_cli_event(int fd, short events, void *userdata)
@@ -1346,7 +1344,7 @@ static void tcp_cli_event(int fd, short events, void *userdata)
 
 	do {
 		loop = cli->evt_table[cli->state](cli, events);
-		loop |= cli_write_run_compl(cli);
+		loop |= cli_write_run_compl();
 	} while (loop);
 }
 
@@ -1876,6 +1874,7 @@ int main (int argc, char *argv[])
 	struct event_base *event_base_rep;
 
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
+	INIT_LIST_HEAD(&tabled_srv.write_compl_q);
 	tabled_srv.state_tdb = ST_TDB_INIT;
 
 	/* isspace() and strcasecmp() consistency requires this */
