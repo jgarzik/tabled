@@ -1499,9 +1499,10 @@ int stor_update_cb(void)
 			stn->up = true;
 			stn->last_up = time(NULL);
 		} else {
-			if (stn->last_up != 0 &&
+			if (stn->up &&
 			    time(NULL) >= stn->last_up + CHUNK_REBOOT_TIME) {
-				applog(LOG_INFO, " NID %u went down", stn->id);
+				applog(LOG_DEBUG, " NID %u went down", stn->id);
+				stn->up = false;
 			}
 		}
 	}
