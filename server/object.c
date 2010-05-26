@@ -1059,6 +1059,49 @@ static void object_get_event(struct open_chunk *ochunk)
 	cli_write_run_compl();
 }
 
+static int object_node_count_up(struct db_obj_ent *obj)
+{
+	int n;
+	int i;
+	uint32_t nid;
+	struct storage_node *stnode;
+
+	n = 0;
+	for (i = 0; i < MAXWAY; i++) {
+		nid = GUINT32_FROM_LE(obj->d.a.nidv[i]);
+		if (nid) {
+			stnode = stor_node_by_nid(nid);
+			if (stnode) {
+				if (stnode->up)
+					n++;
+				stor_node_put(stnode);
+			}
+		}
+	}
+	return n;
+}
+
+static struct storage_node *object_node_select(int *nx, struct db_obj_ent *obj)
+{
+	int i;
+	uint32_t nid;
+	struct storage_node *stnode;
+
+	for (i = 0; i < MAXWAY; i++) {
+		nid = GUINT32_FROM_LE(obj->d.a.nidv[*nx]);
+		if (nid) {
+			stnode = stor_node_by_nid(nid);
+			if (stnode) {
+				if (stnode->up)
+					return stnode;
+				stor_node_put(stnode);
+			}
+		}
+		*nx = (*nx + 1) % MAXWAY;
+	}
+	return NULL;
+}
+
 static bool object_get_body(struct client *cli, const char *user,
 			    const char *bucket, const char *key, bool want_body)
 {
@@ -1159,48 +1202,37 @@ static bool object_get_body(struct client *cli, const char *user,
 }
 
 	cli->in_objid = GUINT64_FROM_LE(obj->d.a.oid);
+	cli->in_retry = object_node_count_up(obj) * 2;
 
-	n = 0;
-	for (i = 0; i < MAXWAY; i++ ) {
-		uint32_t nid;
-		nid = GUINT32_FROM_LE(obj->d.a.nidv[i]);
-		if (nid)
-			n++;
-	}
-	cli->in_retry = n * 2;
+	/*
+	 * Seed n outside of the retry loop because we definitely want to cycle,
+	 * else users see phantom unavailability of keys when nodes go down.
+	 */
+	n = rand() % MAXWAY;
 
  stnode_open_retry:
 	if (cli->in_retry == 0) {
-		applog(LOG_ERR, "No input nodes for oid %llX", cli->in_objid);
+		applog(LOG_ERR, "No ready nodes for oid %llX", cli->in_objid);
 		goto err_out_str;
 	}
 	--cli->in_retry;
 
-	stnode = NULL;
-	n = rand() % MAXWAY;
-	for (i = 0; i < MAXWAY; i++ ) {
-		uint32_t nid;
-		nid = GUINT32_FROM_LE(obj->d.a.nidv[n]);
-		if (nid) {
-			stnode = stor_node_by_nid(nid);
-			if (stnode) {
-				if (debugging)
-					applog(LOG_DEBUG,
-					       "Selected nid %u for oid %llX",
-					       nid, cli->in_objid);
-				stor_node_put(stnode);
-				break;
-			}
-		}
-		n = (n + 1) % MAXWAY;
+	stnode = object_node_select(&n, obj);
+	if (!stnode) {
+		applog(LOG_ERR, "No known nodes for oid %llX", cli->in_objid);
+		goto err_out_str;
 	}
-	if (!stnode)
-		goto stnode_open_retry;
+
+	if (debugging)
+		applog(LOG_DEBUG, "Selected nid %u for oid %llX",
+		       stnode->id, cli->in_objid);
 
 	rc = stor_open(&cli->in_ce, stnode, tabled_srv.evbase_main);
 	if (rc < 0) {
 		applog(LOG_WARNING, "Cannot open input chunk, nid %u (%d)",
 		       stnode->id, rc);
+		stor_node_put(stnode);
+		n = (n + 1) % MAXWAY;
 		goto stnode_open_retry;
 	}
 
@@ -1210,9 +1242,13 @@ static bool object_get_body(struct client *cli, const char *user,
 		applog(LOG_ERR, "Cannot start nid %u for oid %llX (%d)",
 		       stnode->id, (unsigned long long) cli->in_objid, rc);
 		stor_close(&cli->in_ce);
+		stor_node_put(stnode);
+		n = (n + 1) % MAXWAY;
 		goto stnode_open_retry;
 	}
 	cli->in_ce.cli = cli;
+
+	stor_node_put(stnode);
 
 	hdr = req_hdr(&cli->req, "if-unmodified-since");
 	if (hdr) {
