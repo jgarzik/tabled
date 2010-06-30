@@ -18,6 +18,10 @@ fi
 
 # May be different on Solaris... like /usr/libexec or such.
 cld -d data/cld -P cld.pid -p auto --port-file=cld.port -E
+
+# With great sadness we have to use a delay, or else "100 s" happens.
+sleep 3
+
 chunkd -C $top_srcdir/test/chunkd-test.conf -E
 ../server/tabled -C $top_srcdir/test/tabled-test.conf -E
 
