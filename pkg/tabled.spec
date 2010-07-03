@@ -1,13 +1,13 @@
 Name:		tabled
 Version:	0.5
-Release:	0.1.g26571e40%{?dist}
+Release:	0.7.m1%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 26571e40570dfb0d0fc69507cbe8386e65252ff8
+# pulled from upstream git, commit 091d6a5df9d9381958db35cc3a215dc3bc26c380
 # to recreate tarball, check out commit, then run "make dist"
 Source0:	tabled-%{version}git.tar.gz
 Source2:	tabled.init
@@ -19,15 +19,14 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
 BuildRequires:	chunkd cld libcurl-devel
 BuildRequires:	procps
-BuildRequires:	cld-devel >= 0.2.1
-BuildRequires:	chunkd-devel >= 0.4
+BuildRequires:	hail-devel >= 0.7
 
-Requires:	cld >= 0.2.1
-Requires:	chunkd >= 0.4
+Requires:	cld >= 0.7
+Requires:	chunkd >= 0.7
 
 %description
 tabled provides an infinitely scalable, lexicographically sorted
-key/value lookup table. Keys cannot exceed 1024 bytes; values can be
+key/value look up table. Keys cannot exceed 1024 bytes; values can be
 any size, including several gigabytes or more.
 
 tabled user interface is HTTP REST, and is intended to be compatible with
@@ -102,6 +101,28 @@ fi
 %{_includedir}/*
 
 %changelog
+* Mon Jun 28 2010 Pete Zaitce <zaitcev@redhat.com> - 0.5-0.7.m1
+- Revert to a staggered start in start-daemon
+- Test build, bump to 0.5-0.7.m1 (from 0.5-0.7.g091d6a5d)
+
+* Mon Apr 19 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.7.g091d6a5d
+- add sources for git commit 091d6a5df9d9381958db35cc3a215dc3bc26c380
+
+* Wed Apr 14 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.6.gc2310915
+- add sources for git commit c2310915e838aa0da85c86a53d87a41a3213785c
+
+* Mon Feb 15 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.5.gcaf7da1e
+- add sources for git commit caf7da1e7bba1125d846fc1625793134d851917b
+
+* Fri Feb  5 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.4.g5e1a96f0
+- add sources for git commit 5e1a96f00f5d203f24d1a93d6dc5d3224f881aee
+
+* Wed Dec 16 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.3.ge32562b9
+- add sources for git commit e32562b95234a8c221b8a91e8712878ea05cd6b9
+
+* Tue Dec 15 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.2.g93f17fe1
+- add sources for git commit 93f17fe1396082762447a772287ce9b6b40d389b
+
 * Mon Nov 30 2009 Jeff Garzik <jgarzik@redhat.com> - 0.5-0.1.g26571e40
 - add sources for git commit 26571e40570dfb0d0fc69507cbe8386e65252ff8
 
