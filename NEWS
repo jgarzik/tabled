@@ -1,4 +1,14 @@
 
+Version 0.5 - July 3, 2010
+
+- reduce CLD client verbosity
+- check for db 4.8, 4.9, 5.0
+- use new ncld API internally
+- background replication thread
+- config: add <Group> (one cell), drop <StorageNode>
+- add new tests
+- bug fixes
+
 Version 0.4 - November 13, 2009
 
 - retrieve chunk config from CLD

@@ -1,15 +1,13 @@
 Name:		tabled
 Version:	0.5
-Release:	0.7.m1%{?dist}
+Release:	1%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-# pulled from upstream git, commit 091d6a5df9d9381958db35cc3a215dc3bc26c380
-# to recreate tarball, check out commit, then run "make dist"
-Source0:	tabled-%{version}git.tar.gz
+Source0:	http://www.kernel.org/pub/software/network/distsrv/tabled/tabled-%{version}.tar.gz
 Source2:	tabled.init
 Source3:	tabled.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -43,7 +41,7 @@ The %{name}-devel package contains libraries and header files for
 developing applications that use %{name}.
 
 %prep
-%setup -q -n tabled-0.5git
+%setup -q
 
 %build
 %configure --disable-static
@@ -101,6 +99,9 @@ fi
 %{_includedir}/*
 
 %changelog
+* Sat Jul  3 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-1
+- update to release version 0.5
+
 * Mon Jun 28 2010 Pete Zaitce <zaitcev@redhat.com> - 0.5-0.7.m1
 - Revert to a staggered start in start-daemon
 - Test build, bump to 0.5-0.7.m1 (from 0.5-0.7.g091d6a5d)
