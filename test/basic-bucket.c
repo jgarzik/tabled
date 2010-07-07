@@ -22,15 +22,14 @@
 
 #include <string.h>
 #include <locale.h>
-#include <httpstor.h>
-#include <httputil.h>
+#include <hstor.h>
 #include "test.h"
 
 int main(int argc, char *argv[])
 {
-	struct httpstor_client *httpstor;
-	struct httpstor_blist *blist;
-	struct httpstor_bucket *buck;
+	struct hstor_client *hstor;
+	struct hstor_blist *blist;
+	struct hstor_bucket *buck;
 	bool rcb;
 	char accbuf[80];
 	int rc;
@@ -40,22 +39,22 @@ int main(int argc, char *argv[])
 	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
 	OK(rc > 0);
 
-	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
-	OK(httpstor);
+	hstor = hstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
+	OK(hstor);
 
 	/* make sure bucket list is empty */
-	blist = httpstor_list_buckets(httpstor);
+	blist = hstor_list_buckets(hstor);
 	OK(blist);
 	OK(!blist->list);
 
-	httpstor_free_blist(blist);
+	hstor_free_blist(blist);
 
 	/* add bucket */
-	rcb = httpstor_add_bucket(httpstor, "test1");
+	rcb = hstor_add_bucket(hstor, "test1");
 	OK(rcb);
 
 	/* make sure bucket list contains one item */
-	blist = httpstor_list_buckets(httpstor);
+	blist = hstor_list_buckets(hstor);
 	OK(blist);
 	OK(blist->list);
 	OK(blist->list->next == NULL);
@@ -63,18 +62,18 @@ int main(int argc, char *argv[])
 	buck = blist->list->data;
 	OK(!strcmp(buck->name, "test1"));
 
-	httpstor_free_blist(blist);
+	hstor_free_blist(blist);
 
 	/* delete bucket */
-	rcb = httpstor_del_bucket(httpstor, "test1");
+	rcb = hstor_del_bucket(hstor, "test1");
 	OK(rcb);
 
 	/* make sure bucket list is empty */
-	blist = httpstor_list_buckets(httpstor);
+	blist = hstor_list_buckets(hstor);
 	OK(blist);
 	OK(!blist->list);
 
-	httpstor_free_blist(blist);
+	hstor_free_blist(blist);
 
 	return 0;
 }

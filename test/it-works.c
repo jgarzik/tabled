@@ -22,14 +22,13 @@
 
 #include <string.h>
 #include <locale.h>
-#include <httpstor.h>
-#include <httputil.h>
+#include <hstor.h>
 #include "test.h"
 
 int main(int argc, char *argv[])
 {
-	struct httpstor_client *httpstor;
-	struct httpstor_blist *blist;
+	struct hstor_client *hstor;
+	struct hstor_blist *blist;
 	char accbuf[80];
 	int rc;
 
@@ -38,14 +37,14 @@ int main(int argc, char *argv[])
 	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
 	OK(rc > 0);
 
-	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
-	OK(httpstor);
+	hstor = hstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
+	OK(hstor);
 
-	blist = httpstor_list_buckets(httpstor);
+	blist = hstor_list_buckets(hstor);
 	OK(blist);
 
-	OK(!strcmp(blist->own_id, httpstor->user));
-	OK(!strcmp(blist->own_name, httpstor->user));
+	OK(!strcmp(blist->own_id, hstor->user));
+	OK(!strcmp(blist->own_name, hstor->user));
 	OK(!blist->list);
 
 	return 0;

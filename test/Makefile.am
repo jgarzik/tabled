@@ -34,10 +34,9 @@ check_PROGRAMS		= basic-bucket basic-object it-works large-object \
 
 noinst_LIBRARIES	= libtest.a
 
-TESTLDADD		= ../lib/libhttpstor.la	\
-			  ../lib/libhttputil.a	\
-			  libtest.a \
-			  @LIBCURL@ @GLIB_LIBS@ @CRYPTO_LIBS@ @XML_LIBS@
+TESTLDADD		= libtest.a \
+			  @HAIL_LIBS@ @GLIB_LIBS@ \
+			  @LIBCURL@ @CRYPTO_LIBS@ @XML_LIBS@
 basic_bucket_LDADD	= $(TESTLDADD)
 basic_object_LDADD	= $(TESTLDADD)
 large_object_LDADD	= $(TESTLDADD)
@@ -45,6 +44,6 @@ hdr_content_type_LDADD	= $(TESTLDADD)
 hdr_meta_LDADD		= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
 
-wait_for_listen_LDADD	= ../lib/libhttputil.a
+wait_for_listen_LDADD	= libtest.a
 
 TESTS_ENVIRONMENT=top_srcdir=$(top_srcdir)

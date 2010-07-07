@@ -27,7 +27,7 @@
 #include <glib.h>
 #include <pcre.h>
 #include <event.h>
-#include <httputil.h>
+#include <hstor.h>
 #include <elist.h>
 #include <tdb.h>
 #include <hail_log.h>

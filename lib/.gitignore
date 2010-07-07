@@ -1,7 +1,3 @@
-*.lo
-*.la
-.libs
-libhttputil.a
-libhttpstor.a
-libhttpstor-uninstalled.pc
-libhttpstor.pc
+
+libtdb.a
+

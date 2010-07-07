@@ -265,7 +265,7 @@ bool service_list(struct client *cli, const char *user)
                         "    </Bucket>\r\n",
 
 			     ent->name,
-			     time2str(timestr, sizeof(timestr),
+			     hutil_time2str(timestr, sizeof(timestr),
 			     	      GUINT64_FROM_LE(ent->time_create)));
 		if (!s)
 			goto err_out_content;
@@ -467,7 +467,7 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 	/* prepare parameters */
 	setacl = false;
 	if (cli->req.uri.query_len) {
-		switch (req_is_query(&cli->req)) {
+		switch (hreq_is_query(&cli->req)) {
 		case URIQ_ACL:
 			setacl = true;
 			break;
@@ -477,7 +477,7 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 		}
 	}
 
-	if ((rc = req_acl_canned(&cli->req)) == ACLCNUM) {
+	if ((rc = hreq_acl_canned(&cli->req)) == ACLCNUM) {
 		err = InvalidArgument;
 		goto err_par;
 	}
@@ -562,7 +562,7 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, sizeof(timestr), time(NULL)),
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL)),
 		     bucket) < 0)
 		return cli_err(cli, InternalError);
 
@@ -715,7 +715,7 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, sizeof(timestr), time(NULL))) < 0)
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -939,7 +939,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	}
 
 	/* parse URI query string */
-	param = req_query(&cli->req);
+	param = hreq_query(&cli->req);
 	if (!param)
 		goto err_out;
 
@@ -1110,7 +1110,7 @@ static bool bucket_list_keys(struct client *cli, const char *user,
                          "  </Contents>\r\n",
 
 			 vp->key,
-			 time2str(timestr, sizeof(timestr), vp->mtime / 1000000),
+			 hutil_time2str(timestr, sizeof(timestr), vp->mtime / 1000000),
 			 vp->md5,
 			 (unsigned long long) vp->size,
 			 vp->owner,
@@ -1185,7 +1185,7 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 	}
 
 	/* parse URI query string */
-	param = req_query(&cli->req);
+	param = hreq_query(&cli->req);
 	if (!param)
 		goto err_out;
 
@@ -1360,7 +1360,7 @@ bool bucket_list(struct client *cli, const char *user, const char *bucket)
 
 	getacl = false;
 	if (cli->req.uri.query_len) {
-		switch (req_is_query(&cli->req)) {
+		switch (hreq_is_query(&cli->req)) {
 		case URIQ_ACL:
 			getacl = true;
 			break;

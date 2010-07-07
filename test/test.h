@@ -19,7 +19,7 @@
  *
  */
 
-
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -39,5 +39,6 @@
 	} while (0)
 
 extern bool find_our_hdr(const char *hdr, const void *data, size_t data_len);
+extern int tb_readport(const char *fname, char *buf, size_t len);
 
 #endif /* __TABLED_TEST_H__ */

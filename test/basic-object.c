@@ -22,15 +22,14 @@
 
 #include <string.h>
 #include <locale.h>
-#include <httpstor.h>
-#include <httputil.h>
+#include <hstor.h>
 #include "test.h"
 
 int main(int argc, char *argv[])
 {
 	static char bucket[] = "test1";
 	static char key[] = "my first key";
-	struct httpstor_client *httpstor;
+	struct hstor_client *hstor;
 	char accbuf[80];
 	int rc;
 	bool rcb;
@@ -43,29 +42,29 @@ int main(int argc, char *argv[])
 	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
 	OK(rc > 0);
 
-	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
-	OK(httpstor);
+	hstor = hstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
+	OK(hstor);
 
 	/* add bucket */
-	rcb = httpstor_add_bucket(httpstor, bucket);
+	rcb = hstor_add_bucket(hstor, bucket);
 	OK(rcb);
 
 	/* store object */
-	rcb = httpstor_put_inline(httpstor, bucket, key, val, strlen(val), NULL);
+	rcb = hstor_put_inline(hstor, bucket, key, val, strlen(val), NULL);
 	OK(rcb);
 
 	/* get object */
-	mem = httpstor_get_inline(httpstor, bucket, key, false, &len);
+	mem = hstor_get_inline(hstor, bucket, key, false, &len);
 	OK(mem);
 	OK(len == strlen(val));
 	OK(!memcmp(val, mem, strlen(val)));
 
 	/* delete object */
-	rcb = httpstor_del(httpstor, bucket, key);
+	rcb = hstor_del(hstor, bucket, key);
 	OK(rcb);
 
 	/* delete bucket */
-	rcb = httpstor_del_bucket(httpstor, bucket);
+	rcb = hstor_del_bucket(hstor, bucket);
 	OK(rcb);
 
 	return 0;

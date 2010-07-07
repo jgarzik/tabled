@@ -25,8 +25,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <locale.h>
-#include <httpstor.h>
-#include <httputil.h>
+#include <hstor.h>
 #include "test.h"
 
 static char bucket[] = "test-hdr-ctt";
@@ -38,17 +37,17 @@ static char *user_hdrs[] = {
 	NULL
 };
 
-static void runtest(struct httpstor_client *httpstor)
+static void runtest(struct hstor_client *hstor)
 {
 	bool rcb;
 	void *data = NULL;
 	size_t data_len = 0;
 
-	rcb = httpstor_put_inline(httpstor, bucket, key,
+	rcb = hstor_put_inline(hstor, bucket, key,
 				  value, strlen(value) + 1, user_hdrs);
 	OK(rcb);
 
-	data = httpstor_get_inline(httpstor, bucket, key, true, &data_len);
+	data = hstor_get_inline(hstor, bucket, key, true, &data_len);
 	OK(data);
 	OK(data_len > 0);
 
@@ -60,7 +59,7 @@ static void runtest(struct httpstor_client *httpstor)
 
 int main(int argc, char *argv[])
 {
-	struct httpstor_client *httpstor;
+	struct hstor_client *hstor;
 	char accbuf[80];
 	int rc;
 	bool rcb;
@@ -70,19 +69,19 @@ int main(int argc, char *argv[])
 	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
 	OK(rc > 0);
 
-	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
-	OK(httpstor);
+	hstor = hstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
+	OK(hstor);
 
 	/* add bucket - since tests are independent, we do not rely on others */
-	rcb = httpstor_add_bucket(httpstor, bucket);
+	rcb = hstor_add_bucket(hstor, bucket);
 	OK(rcb);
 
-	runtest(httpstor);
+	runtest(hstor);
 
-	rcb = httpstor_del(httpstor, bucket, key);
+	rcb = hstor_del(hstor, bucket, key);
 	OK(rcb);
 
-	rcb = httpstor_del_bucket(httpstor, bucket);
+	rcb = hstor_del_bucket(hstor, bucket);
 	OK(rcb);
 
 	return 0;

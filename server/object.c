@@ -224,7 +224,7 @@ bool object_del(struct client *cli, const char *user,
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, sizeof(timestr), time(NULL))) < 0)
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
 	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
@@ -337,7 +337,7 @@ static bool object_put_end(struct client *cli)
 	uint64_t tmp_time;
 	void *mem;
 
-	if (http11(&cli->req))
+	if (hreq_http11(&cli->req))
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -376,7 +376,7 @@ static bool object_put_end(struct client *cli)
 
 	md5str(md, md5);
 
-	type = req_hdr(&cli->req, "content-type");
+	type = hreq_hdr(&cli->req, "content-type");
 	if (!type)
 		type = "binary/octet-stream";
 	else
@@ -515,7 +515,7 @@ static bool object_put_end(struct client *cli)
 		     cli->req.major,
 		     cli->req.minor,
 		     md5,
-		     time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
 		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
@@ -878,13 +878,13 @@ static bool object_put_acls(struct client *cli, const char *user,
 	if (!user || !has_access(user, bucket, key, "WRITE_ACP"))
 		return cli_err(cli, AccessDenied);
 
-	if ((rc = req_acl_canned(&cli->req)) == ACLCNUM) {
+	if ((rc = hreq_acl_canned(&cli->req)) == ACLCNUM) {
 		err = InvalidArgument;
 		goto err_out_parm;
 	}
 	canacl = (rc == -1)? ACLC_PRIV: rc;
 
-	if (http11(&cli->req))
+	if (hreq_http11(&cli->req))
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -929,7 +929,7 @@ static bool object_put_acls(struct client *cli, const char *user,
 "\r\n",
 		     cli->req.major,
 		     cli->req.minor,
-		     time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0) {
 		/* FIXME: cleanup failure */
 		applog(LOG_ERR, "OOM in object_put_end");
 		return cli_err(cli, InternalError);
@@ -959,7 +959,7 @@ bool object_put(struct client *cli, const char *user, const char *bucket,
 
 	setacl = false;
 	if (cli->req.uri.query_len) {
-		switch (req_is_query(&cli->req)) {
+		switch (hreq_is_query(&cli->req)) {
 		case URIQ_ACL:
 			setacl = true;
 			break;
@@ -1162,7 +1162,7 @@ static bool object_get_body(struct client *cli, const char *user,
 
 	md5 = obj->md5;
 
-	hdr = req_hdr(&cli->req, "if-match");
+	hdr = hreq_hdr(&cli->req, "if-match");
 	if (hdr && strcmp(md5, hdr)) {
 		err = PreconditionFailed;
 		goto err_out_reset;
@@ -1250,11 +1250,11 @@ static bool object_get_body(struct client *cli, const char *user,
 
 	stor_node_put(stnode);
 
-	hdr = req_hdr(&cli->req, "if-unmodified-since");
+	hdr = hreq_hdr(&cli->req, "if-unmodified-since");
 	if (hdr) {
 		time_t t;
 
-		t = str2time(hdr);
+		t = hutil_str2time(hdr);
 		if (!t) {
 			err = InvalidArgument;
 			goto err_out_in_end;
@@ -1266,11 +1266,11 @@ static bool object_get_body(struct client *cli, const char *user,
 		}
 	}
 
-	hdr = req_hdr(&cli->req, "if-modified-since");
+	hdr = hreq_hdr(&cli->req, "if-modified-since");
 	if (hdr) {
 		time_t t;
 
-		t = str2time(hdr);
+		t = hutil_str2time(hdr);
 		if (!t) {
 			err = InvalidArgument;
 			goto err_out_in_end;
@@ -1282,7 +1282,7 @@ static bool object_get_body(struct client *cli, const char *user,
 		}
 	}
 
-	hdr = req_hdr(&cli->req, "if-none-match");
+	hdr = hreq_hdr(&cli->req, "if-none-match");
 	if (hdr && (!strcmp(md5, hdr))) {
 		modified = false;
 		want_body = false;
@@ -1302,8 +1302,8 @@ static bool object_get_body(struct client *cli, const char *user,
 		     modified ? 200 : 304,
 		     (unsigned long long) GUINT64_FROM_LE(obj->size),
 		     md5,
-		     time2str(timestr, sizeof(timestr), time(NULL)),
-		     time2str(modstr, sizeof(modstr),
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL)),
+		     hutil_time2str(modstr, sizeof(modstr),
 			      GUINT64_FROM_LE(obj->mtime) / 1000000),
 		     extra_hdr->str) < 0)
 		goto err_out_in_end;
@@ -1396,7 +1396,7 @@ bool object_get(struct client *cli, const char *user, const char *bucket,
 
 	getacl = false;
 	if (cli->req.uri.query_len) {
-		switch (req_is_query(&cli->req)) {
+		switch (hreq_is_query(&cli->req)) {
 		case URIQ_ACL:
 			getacl = true;
 			break;

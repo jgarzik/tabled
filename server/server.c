@@ -356,7 +356,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 		pass = val.data;
 	}
 
-	req_sign(req, extra_bucket, pass, b64sig);
+	hreq_sign(req, extra_bucket, pass, b64sig);
 	free(pass);
 
 	if (strncmp(b64sig, auth + captured[4], usiglen) != 0) {
@@ -493,7 +493,7 @@ static void cli_free(struct client *cli)
 		close(cli->fd);
 	}
 
-	req_free(&cli->req);
+	hreq_free(&cli->req);
 
 	if (cli->write_cnt_max > tabled_srv.stats.max_write_buf)
 		tabled_srv.stats.max_write_buf = cli->write_cnt_max;
@@ -519,7 +519,7 @@ static bool cli_evt_recycle(struct client *cli, unsigned int events)
 {
 	unsigned int slop;
 
-	req_free(&cli->req);
+	hreq_free(&cli->req);
 
 	cli->hdr_start = NULL;
 	cli->hdr_end = NULL;
@@ -769,7 +769,7 @@ bool cli_err(struct client *cli, enum errcode code)
 			     cli->req.minor,
 			     err_info[code].status,
 			     strlen(content),
-			     time2str(timestr, sizeof(timestr), time(NULL)),
+			     hutil_time2str(timestr, sizeof(timestr), time(NULL)),
 			     "*");
 		if (rc < 0) {
 			free(content);
@@ -788,7 +788,7 @@ bool cli_err(struct client *cli, enum errcode code)
 			     cli->req.minor,
 			     err_info[code].status,
 			     strlen(content),
-			     time2str(timestr, sizeof(timestr), time(NULL)));
+			     hutil_time2str(timestr, sizeof(timestr), time(NULL)));
 		if (rc < 0) {
 			free(content);
 			return false;
@@ -819,7 +819,7 @@ static bool cli_resp(struct client *cli, int http_status,
 {
 	int rc;
 	char *hdr, timestr[50];
-	bool rcb, cxn_close = !http11(&cli->req);
+	bool rcb, cxn_close = !hreq_http11(&cli->req);
 
 	if (asprintf(&hdr,
 "HTTP/%d.%d %d x\r\n"
@@ -834,7 +834,7 @@ static bool cli_resp(struct client *cli, int http_status,
 		     http_status,
 		     content_type,
 		     strlist_len(content),
-		     time2str(timestr, sizeof(timestr), time(NULL)),
+		     hutil_time2str(timestr, sizeof(timestr), time(NULL)),
 		     cxn_close ? "Connection: close\r\n" : "") < 0) {
 		__strlist_free(content);
 		return false;
@@ -901,11 +901,11 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	}
 
 	/* grab useful headers */
-	host = req_hdr(req, "host");
-	content_len_str = req_hdr(req, "content-length");
-	auth = req_hdr(req, "authorization");
+	host = hreq_hdr(req, "host");
+	content_len_str = hreq_hdr(req, "content-length");
+	auth = hreq_hdr(req, "authorization");
 	if (req->major > 1 || req->minor > 0) {
-		char *expect = req_hdr(req, "expect");
+		char *expect = hreq_hdr(req, "expect");
 		if (expect && strcasestr(expect, "100-continue"))
 			expect_cont = true;
 	}
@@ -947,7 +947,7 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	 * the operations below may override this next-state setting,
 	 * however.
 	 */
-	if (http11(req))
+	if (hreq_http11(req))
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;
@@ -1113,7 +1113,7 @@ static bool cli_hdr_flush(struct client *cli, bool *loop_state)
 	*tmp = 0;
 
 	/* add to list of headers */
-	if (req_hdr_push(&cli->req, cli->hdr_start, tmp + 1)) {
+	if (hreq_hdr_push(&cli->req, cli->hdr_start, tmp + 1)) {
 		err_resp = InvalidArgument;
 		goto err_out;
 	}
@@ -1246,14 +1246,14 @@ static bool cli_evt_parse_req(struct client *cli, unsigned int events)
 	strup(cli->req.method);
 
 	/* URI is the second token, immediately following the first space */
-	if (!uri_parse(&cli->req.uri, sp1 + 1)) {
+	if (!huri_parse(&cli->req.uri, sp1 + 1)) {
 		err_resp = InvalidURI;
 		goto err_out;
 	}
 
 	cli->req.orig_path = g_strndup(cli->req.uri.path, cli->req.uri.path_len);
 
-	cli->req.uri.path_len = field_unescape(cli->req.uri.path,
+	cli->req.uri.path_len = huri_field_unescape(cli->req.uri.path,
 					       cli->req.uri.path_len);
 
 	/* HTTP version is the final token, following second space */

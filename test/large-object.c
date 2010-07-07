@@ -30,8 +30,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <locale.h>
-#include <httpstor.h>
-#include <httputil.h>
+#include <hstor.h>
 #include "test.h"
 
 #define BLKSZ0	1024
@@ -162,7 +161,7 @@ static size_t get_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
 	return nmemb;
 }
 
-static void runtest(struct httpstor_client *httpstor,
+static void runtest(struct hstor_client *hstor,
 		    size_t blklen, int nblks)
 {
 	off_t total = blklen * nblks;
@@ -176,7 +175,7 @@ static void runtest(struct httpstor_client *httpstor,
 	putctx.blksize = blklen;
 	putctx.total = total;
 
-	rcb = httpstor_put(httpstor, bucket, key, put_cb, total, &putctx, NULL);
+	rcb = hstor_put(hstor, bucket, key, put_cb, total, &putctx, NULL);
 	OK(rcb);
 	OK(putctx.off == total);
 
@@ -186,7 +185,7 @@ static void runtest(struct httpstor_client *httpstor,
 	getctx.csum = CSUM_INIT;
 	getctx.blksize = blklen;
 
-	rcb = httpstor_get(httpstor, bucket, key, get_cb, &getctx, false);
+	rcb = hstor_get(hstor, bucket, key, get_cb, &getctx, false);
 	OK(rcb);
 	OK(getctx.off == total);
 
@@ -195,7 +194,7 @@ static void runtest(struct httpstor_client *httpstor,
 
 int main(int argc, char *argv[])
 {
-	struct httpstor_client *httpstor;
+	struct hstor_client *hstor;
 	char accbuf[80];
 	int rc;
 	bool rcb;
@@ -205,21 +204,21 @@ int main(int argc, char *argv[])
 	rc = tb_readport(TEST_FILE_TB, accbuf, sizeof(accbuf));
 	OK(rc > 0);
 
-	httpstor = httpstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
-	OK(httpstor);
+	hstor = hstor_new(accbuf, TEST_HOST, TEST_USER, TEST_USER_KEY);
+	OK(hstor);
 
 	/* add bucket - since tests are independent, we do not rely on others */
-	rcb = httpstor_add_bucket(httpstor, bucket);
+	rcb = hstor_add_bucket(hstor, bucket);
 	OK(rcb);
 
-	runtest(httpstor, BLKSZ0, NBLKS0);
-	runtest(httpstor, BLKSZ1, NBLKS1);
-	runtest(httpstor, BLKSZ2, NBLKS2);
+	runtest(hstor, BLKSZ0, NBLKS0);
+	runtest(hstor, BLKSZ1, NBLKS1);
+	runtest(hstor, BLKSZ2, NBLKS2);
 
-	rcb = httpstor_del(httpstor, bucket, key);
+	rcb = hstor_del(hstor, bucket, key);
 	OK(rcb);
 
-	rcb = httpstor_del_bucket(httpstor, bucket);
+	rcb = hstor_del_bucket(hstor, bucket);
 	OK(rcb);
 
 	return 0;

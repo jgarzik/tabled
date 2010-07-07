@@ -102,7 +102,7 @@ static bool stat_err(struct client *cli, enum errcode code)
 		      "\r\n",
 		      cli->req.major, cli->req.minor, err_status,
 		      strlen(content),
-		      time2str(timestr, sizeof(timestr), time(NULL)));
+		      hutil_time2str(timestr, sizeof(timestr), time(NULL)));
 	if (rc < 0)
 		goto out_hdr;
 
@@ -160,7 +160,7 @@ bool stat_evt_http_req(struct client *cli, unsigned int events)
 	bool rcb;
 
 	/* grab useful headers */
-	// content_len_str = req_hdr(req, "content-length");
+	// content_len_str = hreq_hdr(req, "content-length");
 
 	path = strdup(req->uri.path);
 	if (!path)
@@ -178,7 +178,7 @@ bool stat_evt_http_req(struct client *cli, unsigned int events)
 	 * the operations below may override this next-state setting,
 	 * however.
 	 */
-	if (http11(req))
+	if (hreq_http11(req))
 		cli->state = evt_recycle;
 	else
 		cli->state = evt_dispose;

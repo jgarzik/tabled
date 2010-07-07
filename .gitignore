@@ -19,15 +19,6 @@ install-sh
 missing
 push
 stamp-h1
-libtool
-ltmain.sh
-
-# app-specific
-tabled
-tdbadm
-
-libtabled.a
-libtdb.a
 
 tabled*.tar.gz
 tabled-config.h*

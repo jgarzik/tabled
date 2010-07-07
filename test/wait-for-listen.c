@@ -34,7 +34,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <netdb.h>
-#include <httputil.h>
 #include "test.h"
 
 #define ADDRSIZE	24	/* Enough for IPv6, including port. */

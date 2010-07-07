@@ -17,21 +17,6 @@ dnl You should have received a copy of the GNU General Public License
 dnl along with this program; if not, write to the Free Software
 dnl Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
-m4_define([libhttpstor_major_version], [1])
-m4_define([libhttpstor_minor_version], [1])
-m4_define([libhttpstor_micro_version], [1])
-m4_define([libhttpstor_interface_age], [1])
-# If you need a modifier for the version number. 
-# Normally empty, but can be used to make "fixup" releases.
-m4_define([libhttpstor_extraversion], [])
-
-dnl libtool versioning from libhttpstor
-m4_define([libhttpstor_current], [m4_eval(100 * libhttpstor_minor_version + libhttpstor_micro_version - libhttpstor_interface_age)])
-m4_define([libhttpstor_binary_age], [m4_eval(100 * libhttpstor_minor_version + libhttpstor_micro_version)])
-m4_define([libhttpstor_revision], [libhttpstor_interface_age])
-m4_define([libhttpstor_age], [m4_eval(libhttpstor_binary_age - libhttpstor_interface_age)])
-m4_define([libhttpstor_version], [libhttpstor_major_version().libhttpstor_minor_version().libhttpstor_micro_version()libhttpstor_extraversion()])
-
 AC_INIT([tabled], [0.5],
         [http://hail.wiki.kernel.org/])
 
@@ -40,26 +25,13 @@ AC_CONFIG_SRCDIR([server/server.c])
 AM_INIT_AUTOMAKE([gnu])
 AC_CONFIG_HEADERS([tabled-config.h])
 
-LIBHTTPSTOR_MAJOR_VERSION=libhttpstor_major_version
-LIBHTTPSTOR_MINOR_VERSION=libhttpstor_minor_version
-LIBHTTPSTOR_MICRO_VERSION=libhttpstor_micro_version
-LIBHTTPSTOR_INTERFACE_AGE=libhttpstor_interface_age
-
-LIBHTTPSTOR_CURRENT=libhttpstor_current
-LIBHTTPSTOR_REVISION=libhttpstor_revision
-LIBHTTPSTOR_AGE=libhttpstor_age
-
-AC_SUBST(LIBHTTPSTOR_CURRENT)
-AC_SUBST(LIBHTTPSTOR_REVISION)
-AC_SUBST(LIBHTTPSTOR_AGE)
-
 dnl Make sure anyone changing configure.ac/Makefile.am has a clue
 AM_MAINTAINER_MODE
 
 dnl Checks for programs
 AC_PROG_CC
 AC_PROG_GCC_TRADITIONAL
-AM_PROG_LIBTOOL
+AC_PROG_RANLIB
 PKG_PROG_PKG_CONFIG
 
 dnl Checks for header files.
@@ -119,8 +91,6 @@ dnl AC_SUBST(CHUNKDC_LIBS)
 
 AC_CONFIG_FILES([doc/Makefile
 		 lib/Makefile
-		 lib/libhttpstor.pc
-		 lib/libhttpstor-uninstalled.pc
 		 include/Makefile
 		 server/Makefile
 		 test/Makefile

@@ -5,12 +5,8 @@
 
 set -e
 
-# libtoolize needs to be run twice, for some reason
-# to avoid errors relating to ltmain.sh installation
-
-libtoolize --force
 aclocal
 autoheader
 automake --gnu --add-missing --copy
 autoconf
-libtoolize --force
+

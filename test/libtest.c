@@ -17,9 +17,14 @@
  *
  */
 
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <string.h>
 #include <stdbool.h>
+#include <unistd.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
 #include "test.h"
 
 bool find_our_hdr(const char *hdr, const void *data, size_t data_len)
@@ -59,5 +64,36 @@ bool find_our_hdr(const char *hdr, const void *data, size_t data_len)
 	}
 
 	return false;
+}
+
+/*
+ * Read a port number from a port file, fill buffer.
+ * Unlike cld_readport, host is included as well, and we use strings.
+ */
+int tb_readport(const char *fname, char *buf, size_t len)
+{
+	int fd;
+	char *s;
+	int rc;
+
+	if (len < 3)
+		return -EDOM;
+	if ((fd = open(fname, O_RDONLY)) == -1)
+		return -errno;
+	rc = read(fd, buf, len-1);
+	close(fd);
+	if (rc < 0)
+		return -errno;
+	if (rc == 0)
+		return -EPIPE;
+	buf[rc] = 0;
+
+	s = strchr(buf, '\n');
+	if (s) {
+		*s = 0;
+		rc = s - buf; 
+	}
+
+	return rc;
 }
 
