@@ -328,7 +328,7 @@ int objid_init(uint64_t *obj_count, struct tabledb *tdbp)
 		exit(1);	/* Quit before something unknown blows up. */
 	}
 
-	if (objcount & 0xff00000000000000) {
+	if (objcount & 0xff00000000000000ULL) {
 		applog(LOG_ERR, "Dangerous objid %llX\n",
 		       (unsigned long long) objcount);
 		return -1;
