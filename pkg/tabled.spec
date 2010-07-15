@@ -1,13 +1,19 @@
 Name:		tabled
-Version:	0.5
-Release:	1%{?dist}
+Version:	0.5.1
+Release:	0.2.g33595340%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
 License:	GPLv2
 URL:		http://hail.wiki.kernel.org/
 
-Source0:	http://www.kernel.org/pub/software/network/distsrv/tabled/tabled-%{version}.tar.gz
+# pulled from upstream git, commit 33595340bc7ed226623baf75a9ccdabfc2a47a7f
+# to recreate tarball, check out commit, then run "make dist"
+Source0:	tabled-%{version}git.tar.gz
+
+#uncomment this, if a full release version of tabled
+#Source0:	http://www.kernel.org/pub/software/network/distsrv/tabled/tabled-%{version}.tar.gz
+
 Source2:	tabled.init
 Source3:	tabled.sysconf
 BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -15,7 +21,7 @@ BuildRoot:	%{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 # N.B. We need chunkd and cld to build, because our "make check" spawns
 # private copies of infrastructure daemons.
 BuildRequires:	db4-devel libevent-devel glib2-devel pcre-devel
-BuildRequires:	chunkd cld libcurl-devel
+BuildRequires:	chunkd cld libcurl-devel libxml2-devel
 BuildRequires:	procps
 BuildRequires:	hail-devel >= 0.7
 
@@ -24,24 +30,16 @@ Requires:	chunkd >= 0.7
 
 %description
 tabled provides an infinitely scalable, lexicographically sorted
-key/value look up table. Keys cannot exceed 1024 bytes; values can be
+key/value look-up table. Keys cannot exceed 1024 bytes; values can be
 any size, including several gigabytes or more.
 
 tabled user interface is HTTP REST, and is intended to be compatible with
 existing Amazon S3 clients.
 
-%package devel
-Summary: Development files for %{name}
-Group: Development/Libraries
-Requires: %{name} = %{version}-%{release}
-Requires: pkgconfig
-
-%description devel
-The %{name}-devel package contains libraries and header files for
-developing applications that use %{name}.
 
 %prep
-%setup -q
+%setup -q -n tabled-0.5.1git
+
 
 %build
 %configure --disable-static
@@ -88,19 +86,17 @@ fi
 %doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
 %{_sbindir}/tabled
 %{_sbindir}/tdbadm
-%{_libdir}/*.so.*
 %attr(0755,root,root)	%{_initddir}/tabled
 %config(noreplace)	%{_sysconfdir}/sysconfig/tabled
 
-%files devel
-%defattr(-,root,root,-)
-%{_libdir}/lib*.so
-%{_libdir}/pkgconfig/*
-%{_includedir}/*
-
 %changelog
-* Sat Jul  3 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5-1
-- update to release version 0.5
+* Thu Jul 15 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5.1-0.2.g33595340
+- BR: libxml2-devel
+
+* Thu Jul 15 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5.1-0.1.g33595340
+- add sources for git commit 33595340bc7ed226623baf75a9ccdabfc2a47a7f
+- build against newly consolidated 'hail' pkg
+- removed now-unneeded tabled-devel RPM
 
 * Mon Jun 28 2010 Pete Zaitce <zaitcev@redhat.com> - 0.5-0.7.m1
 - Revert to a staggered start in start-daemon
