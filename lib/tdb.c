@@ -75,7 +75,6 @@ retry:
 		env->err(env, rc, "db_create");
 		return -EIO;
 	}
-
 	db = *db_out;
 
 	if (page_size) {
@@ -218,9 +217,9 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 	rc = db_env_create(&tdb->env, 0);
 	if (rc) {
 		if (do_syslog)
-			syslog(LOG_WARNING, "tdb->env_create failed: %d", rc);
+			syslog(LOG_WARNING, "db_env_create failed: %d", rc);
 		else
-			fprintf(stderr, "tdb->env_create failed: %d\n", rc);
+			fprintf(stderr, "db_env_create failed: %d\n", rc);
 		return rc;
 	}
 
@@ -228,7 +227,6 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 	dbenv->app_private = tdb;
 
 	dbenv->set_errpfx(dbenv, errpfx);
-
 	if (do_syslog)
 		dbenv->set_errcall(dbenv, db4syslog);
 	else
@@ -247,14 +245,14 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 	 */
 	rc = dbenv->log_set_config(dbenv, DB_LOG_AUTO_REMOVE, 1);
 	if (rc) {
-		dbenv->err(dbenv, rc, "log_set_config");
+		dbenv->err(dbenv, rc, "log_set_config(AUTO_REMOVE)");
 		goto err_out;
 	}
 
 	if (db_password) {
 		rc = dbenv->set_encrypt(dbenv, db_password, DB_ENCRYPT_AES);
 		if (rc) {
-			dbenv->err(dbenv, rc, "dbenv->set_encrypt");
+			dbenv->err(dbenv, rc, "set_encrypt");
 			goto err_out;
 		}
 		tdb->keyed = true;
@@ -262,32 +260,32 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 
 	rc = dbenv->repmgr_set_local_site(dbenv, rep_host, rep_port, 0);
 	if (rc) {
-		dbenv->err(dbenv, rc, "dbenv->set_local_site");
+		dbenv->err(dbenv, rc, "repmgr_set_local_site");
 		goto err_out;
 	}
 
 	rc = dbenv->set_event_notify(dbenv, db4_event);
 	if (rc) {
-		dbenv->err(dbenv, rc, "dbenv->set_event_notify");
+		dbenv->err(dbenv, rc, "set_event_notify");
 		goto err_out;
 	}
 
 	// rc = dbenv->rep_set_timeout(dbenv, DB_REP_LEASE_TIMEOUT, 17000000);
 	// if (rc) {
-	// 	dbenv->err(dbenv, rc, "dbenv->rep_set_timeout(LEASE)");
+	// 	dbenv->err(dbenv, rc, "rep_set_timeout(LEASE)");
 	// 	goto err_out;
 	// }
 
 	// Comment this out due to "nsites must be zero if leases configured"
 	// rc = dbenv->rep_set_config(dbenv, DB_REP_CONF_LEASE, 1);
 	// if (rc) {
-	// 	dbenv->err(dbenv, rc, "dbenv->rep_set_config");
+	// 	dbenv->err(dbenv, rc, "rep_set_config(LEASE)");
 	// 	goto err_out;
 	// }
 
 	rc = dbenv->rep_set_priority(dbenv, 100);
 	if (rc) {
-		dbenv->err(dbenv, rc, "dbenv->rep_set_priority");
+		dbenv->err(dbenv, rc, "rep_set_priority");
 		goto err_out;
 	}
 
@@ -296,7 +294,7 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 	env_flags |= DB_INIT_TXN | DB_INIT_REP;
 	rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
 	if (rc) {
-		dbenv->err(dbenv, rc, "dbenv->open");
+		dbenv->err(dbenv, rc, "open(dbenv)");
 		goto err_out;
 	}
 
@@ -306,13 +304,13 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 
 	// rc = dbenv->rep_set_nsites(dbenv, nsites + 1);
 	// if (rc) {
-	// 	dbenv->err(dbenv, rc, "dbenv->repmgr_set_nsites");
+	// 	dbenv->err(dbenv, rc, "rep_set_nsites");
 	// 	goto err_out;
 	// }
 
 	rc = dbenv->repmgr_start(dbenv, 2, DB_REP_ELECTION);
 	if (rc) {
-		dbenv->err(dbenv, rc, "dbenv->repmgr_start");
+		dbenv->err(dbenv, rc, "repmgr_start");
 		goto err_out;
 	}
 
@@ -416,3 +414,4 @@ void tdb_fini(struct tabledb *tdb)
 	tdb->env->close(tdb->env, 0);
 	tdb->env = NULL;
 }
+
