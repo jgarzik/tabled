@@ -601,13 +601,6 @@ static void rep_scan_verify(struct rep_arg *arg,
 
 	oid = GUINT64_FROM_LE(obj->d.a.oid);
 
-	applog(LOG_INFO, "bucket %s key %s oid %llX n(%u,%u,%u): all %d ok %d",
-	       bucket_name, object_name, (long long) oid,
-	       GUINT32_FROM_LE(obj->d.a.nidv[0]),
-	       GUINT32_FROM_LE(obj->d.a.nidv[1]),
-	       GUINT32_FROM_LE(obj->d.a.nidv[2]),
-	       allcnt, redcnt);
-
 	if (redcnt < MAXWAY) {		/* maybe have MINWAY too? */
 		rep_job_start(arg, cp->klen, cp->key, oid,
 			      GUINT64_FROM_LE(obj->size), redcnt, redvec);
