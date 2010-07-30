@@ -1747,9 +1747,6 @@ static int net_open(void)
 	if (rc)
 		return rc;
 
-	if (tabled_srv.status_port)
-		net_open_known(tabled_srv.status_port, true);
-
 	if (tabled_srv.port_file) {
 		rc = net_write_port(tabled_srv.port_file,
 				    tabled_srv.ourhost, tabled_srv.port);
@@ -1761,7 +1758,31 @@ static int net_open(void)
 	return 0;
 }
 
-static void net_listen(void)
+static void net_listen_status(void)
+{
+	GList *tmp;
+
+	for (tmp = tabled_srv.sockets; tmp; tmp = tmp->next) {
+		struct server_socket *sock = tmp->data;
+
+		if (!sock->is_status)
+			continue;
+
+		if (listen(sock->fd, 10) < 0) {
+			applog(LOG_WARNING, "status socket listen: %s",
+			       strerror(errno));
+			continue;
+		}
+
+		if (event_add(&sock->ev, NULL) < 0) {
+			applog(LOG_WARNING, "status socket event_add error");
+			/* FIXME: There is no unlisten other than close. */
+			continue;
+		}
+	}
+}
+
+static void net_listen_client(void)
 {
 	GList *tmp;
 
@@ -1771,14 +1792,21 @@ static void net_listen(void)
 	for (tmp = tabled_srv.sockets; tmp; tmp = tmp->next) {
 		struct server_socket *sock = tmp->data;
 
+		if (sock->is_status)
+			continue;
+
 		if (listen(sock->fd, 100) < 0) {
-			applog(LOG_WARNING, "tcp socket listen: %s",
-			       strerror(errno));
+			if (debugging)
+				applog(LOG_DEBUG, "client socket listen: %s",
+				       strerror(errno));
 			continue;
 		}
+		if (debugging)
+			applog(LOG_DEBUG, "client socket listen ok");
 
 		if (event_add(&sock->ev, NULL) < 0) {
-			applog(LOG_WARNING, "tcp socket event_add");
+			applog(LOG_WARNING, "client socket event_add error");
+			/* FIXME: There is no unlisten other than close. */
 			continue;
 		}
 	}
@@ -1824,7 +1852,7 @@ static void tdb_state_process(enum st_tdb new_state)
 		}
 		add_chkpt_timer();
 		rep_start();
-		net_listen();
+		net_listen_client();
 	}
 }
 
@@ -1964,6 +1992,10 @@ int main (int argc, char *argv[])
 	}
 
 	/* set up server networking */
+	if (tabled_srv.status_port) {
+		if (net_open_known(tabled_srv.status_port, true) == 0)
+			net_listen_status();
+	}
 	rc = net_open();
 	if (rc)
 		goto err_out_net;
