@@ -1027,7 +1027,7 @@ static bool object_get_poke(struct client *cli)
 	} else {
 		if (cli_writeq(cli, buf, bytes, object_get_more, buf))
 			goto err_out;
-		if (cli_wqueued(cli) >= 4000)
+		if (cli_wqueued(cli) >= CLI_DATA_BUF_SZ)
 			cli_write_start(cli);
 	}
 	return true;

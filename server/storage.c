@@ -290,7 +290,7 @@ ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 	if (!cep->stc)
 		return -EPIPE;
 	rc = stc_put_send(cep->stc, data, len);
-	if (rc == 0 && !cep->w_armed) {
+	if (rc < len && !cep->w_armed) {
 		event_add(&cep->wevt, NULL);
 		cep->w_armed = true;
 	}

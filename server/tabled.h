@@ -49,7 +49,7 @@ enum {
 	CHUNK_REBOOT_TIME	= 3*60,		/* secs to declare chunk dead */
 
 	CLI_REQ_BUF_SZ		= 8192,		/* buffer for req + hdrs */
-	CLI_DATA_BUF_SZ		= 8192,
+	CLI_DATA_BUF_SZ		= 65536,
 };
 
 enum errcode {
