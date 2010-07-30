@@ -351,29 +351,6 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 
 	ncld_read_free(nrp);
 
-	/*
-	 * If configuration gives us storage nodes, we shortcut scanning
-	 * of CLD, because:
-	 *  - the scanning may fail, and we should not care
-	 *  - NIDs for configured nodes are auto-assigned and may conflict
-	 * This will go away with the demise of <StorageNode>.
-	 */
-	if (tabled_srv.num_stor) {
-		if (debugging)
-			applog(LOG_DEBUG, "Trying to open %d storage nodes",
-			       tabled_srv.num_stor);
-		while (stor_update_cb() < 1) {
-			tm.tv_sec = 3;
-			tm.tv_nsec = 0;
-			nanosleep(&tm, NULL);
-			if (debugging)
-				applog(LOG_DEBUG,
-				       "Trying to reopen %d storage nodes",
-				       tabled_srv.num_stor);
-		}
-		return 0;
-	}
-
 	return 0;
 
 err_dread:
