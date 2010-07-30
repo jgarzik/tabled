@@ -1644,7 +1644,7 @@ static int net_open_any(void)
 	addr4.sin_addr.s_addr = htonl(INADDR_ANY);
 	/* If IPv6 worked, we must use the same port number for IPv4 */
 	if (port)
-		addr4.sin_port = port;
+		addr4.sin_port = htons(port);
 	fd4 = net_open_socket(AF_INET, SOCK_STREAM, 0, sizeof(addr4), &addr4,
 			      false);
 
