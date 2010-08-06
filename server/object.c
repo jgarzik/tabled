@@ -356,10 +356,14 @@ static bool object_put_end(struct client *cli)
 			if (debugging) {
 				/* FIXME how do we test for inline objects here? */
 				if (!stor_obj_test(ochunk, cli->out_objid))
-					applog(LOG_ERR, "Stat (%llX) failed",
+					applog(LOG_ERR,
+					       "Stat failed nid %u oid %llX",
+					       ochunk->node->id,
 					       (unsigned long long) cli->out_objid);
 				else
-					applog(LOG_DEBUG, "STORED %llX, size -",
+					applog(LOG_DEBUG,
+					       "STORED nid %u oid %llX, size -",
+					       ochunk->node->id,
 					       (unsigned long long) cli->out_objid);
 			}
 			obj_addr.nidv[nok] = GUINT32_TO_LE(ochunk->node->id);
@@ -705,8 +709,9 @@ static struct open_chunk *open_chunk1(struct storage_node *stnode,
 
 	rc = stor_put_start(ochunk, object_put_event, objid, content_len);
 	if (rc != 0) {
-		applog(LOG_WARNING, "Cannot start putting for %llX (%d)",
-		       (unsigned long long) objid, rc);
+		applog(LOG_WARNING,
+		       "Cannot start putting for nid %u oid %llX (%d)",
+		       ochunk->node->id, (unsigned long long) objid, rc);
 		goto err_start;
 	}
 
@@ -982,6 +987,7 @@ void cli_in_end(struct client *cli)
 		return;
 
 	stor_close(&cli->in_ce);
+	cli->in_len = 0;
 }
 
 static bool object_get_more(struct client *cli, void *cb_data, bool done);
@@ -995,6 +1001,13 @@ static bool object_get_poke(struct client *cli)
 	char *buf;
 	ssize_t bytes;
 
+	/* The checks for in_len in caller should protect us, but let's see. */
+	if (!cli->in_ce.stc) {
+		applog(LOG_ERR, "read on closed chunk, in_len %ld",
+		       (long) cli->in_len);
+		return false;
+	}
+
 	/* XXX flow control - what treshold? */
 	/*  if (cli_wqueued(cli) >= 1000000000) return false; */
 
@@ -1005,8 +1018,9 @@ static bool object_get_poke(struct client *cli)
 	bytes = stor_get_buf(&cli->in_ce, buf,
 			     MIN(cli->in_len, CLI_DATA_BUF_SZ));
 	if (bytes < 0) {
-		applog(LOG_ERR, "read obj(%llX) failed",
-		       (unsigned long long) cli->in_objid);
+		applog(LOG_ERR, "read failed nid %u oid %llX (%d)",
+		       cli->in_ce.node->id, (unsigned long long) cli->in_objid,
+		       (int) bytes);
 		goto err_out;
 	}
 	if (bytes == 0) {
@@ -1047,6 +1061,8 @@ static bool object_get_more(struct client *cli, void *cb_data, bool done)
 
 	/* do not queue more, if !completion or fd was closed early */
 	if (!done)	/* FIXME We used to test for input errors here. */
+		return false;
+	if (!cli->in_len)
 		return false;
 
 	return object_get_poke(cli);		/* won't hurt to try */
@@ -1323,8 +1339,8 @@ static bool object_get_body(struct client *cli, const char *user,
 
 	bytes = stor_get_buf(&cli->in_ce, buf, MIN(cli->in_len, sizeof(buf)));
 	if (bytes < 0) {
-		applog(LOG_ERR, "read obj(%llX) failed",
-		       (unsigned long long) cli->in_objid);
+		applog(LOG_ERR, "read failed nid %u oid %llX",
+		       cli->in_ce.node->id, (unsigned long long) cli->in_objid);
 		goto err_out_in_end;
 	}
 	if (bytes == 0) {
