@@ -1413,7 +1413,7 @@ err_out:
 
 static void add_chkpt_timer(void)
 {
-	struct timeval tv = { TABLED_CHKPT_SEC, 0 };
+	static const struct timeval tv = { TABLED_CHKPT_SEC, 0 };
 
 	if (evtimer_add(&tabled_srv.chkpt_timer, &tv) < 0)
 		applog(LOG_WARNING, "unable to add checkpoint timer");
