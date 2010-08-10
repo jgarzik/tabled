@@ -43,11 +43,11 @@ bool has_access(const char *user, const char *bucket, const char *key,
 	size_t alloc_len, key_len = 0;
 	struct db_acl_key *acl_key;
 	struct db_acl_ent *acl;
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DB_TXN *txn = NULL;
 	DBT pkey, pval;
 	DBC *cur = NULL;
-	DB *acls = tdb.acls;
+	DB *acls = tdbrep.tdb.acls;
 
 	if (user == NULL)
 		user = DB_ACL_ANON;
@@ -132,7 +132,7 @@ err_out:
 static int add_access_user(DB_TXN *txn, const char *bucket, const char *key,
 			   const char *user, const char *perms)
 {
-	DB *acls = tdb.acls;
+	DB *acls = tdbrep.tdb.acls;
 	int key_len;
 	int acl_len;
 	struct db_acl_ent *acl;
@@ -203,8 +203,8 @@ bool service_list(struct client *cli, const char *user)
 	bool rcb;
 	DB_TXN *txn = NULL;
 	DBC *cur = NULL;
-	DB_ENV *dbenv = tdb.env;
-	DB *bidx = tdb.buckets_idx;
+	DB_ENV *dbenv = tdbrep.tdb.env;
+	DB *bidx = tdbrep.tdb.buckets_idx;
 	DBT skey, pkey, pval;
 
 	if (asprintf(&s,
@@ -348,7 +348,7 @@ bool bucket_valid(const char *bucket)
 static int bucket_find(DB_TXN *txn, const char *bucket, char *owner,
 		       int owner_len)
 {
-	DB *buckets = tdb.buckets;
+	DB *buckets = tdbrep.tdb.buckets;
 	DBT key, val;
 	struct db_bucket_ent ent;
 	int rc;
@@ -455,9 +455,9 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 	struct db_bucket_ent ent;
 	bool setacl;			/* is ok to put pre-existing bucket */
 	enum ReqACLC canacl;
-	DB *buckets = tdb.buckets;
-	DB *acls = tdb.acls;
-	DB_ENV *dbenv = tdb.env;
+	DB *buckets = tdbrep.tdb.buckets;
+	DB *acls = tdbrep.tdb.acls;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DB_TXN *txn = NULL;
 	DBT key, val;
 
@@ -589,11 +589,11 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 	enum errcode err = InternalError;
 	int rc;
 	struct db_bucket_ent ent;
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DB_TXN *txn = NULL;
-	DB *buckets = tdb.buckets;
-	DB *acls = tdb.acls;
-	DB *objs = tdb.objs;
+	DB *buckets = tdbrep.tdb.buckets;
+	DB *acls = tdbrep.tdb.acls;
+	DB *objs = tdbrep.tdb.objs;
 	DBC *cur = NULL;
 	DBT key, val;
 	char structbuf[sizeof(struct db_acl_key) + 32];
@@ -922,9 +922,9 @@ static bool bucket_list_keys(struct client *cli, const char *user,
 	size_t pfx_len;
 	struct bucket_list_info bli;
 	bool rcb;
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DB_TXN *txn = NULL;
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	DBC *cur = NULL;
 	DBT pkey, pval;
 	struct db_obj_key *obj_key;
@@ -1159,8 +1159,8 @@ bool access_list(struct client *cli, const char *bucket, const char *key,
 
 	GHashTable *param;
 	enum errcode err = InternalError;
-	DB_ENV *dbenv = tdb.env;
-	DB *acls = tdb.acls;
+	DB_ENV *dbenv = tdbrep.tdb.env;
+	DB *acls = tdbrep.tdb.acls;
 	int alloc_len;
 	char owner[64];
 	GList *res;

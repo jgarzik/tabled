@@ -39,7 +39,7 @@
 static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 		       struct db_obj_ent *pobj)
 {
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	struct db_obj_key *okey;
 	size_t alloc_len;
 	DBT pkey, pval;
@@ -72,7 +72,7 @@ static int object_find(DB_TXN *txn, const char *bucket, const char *key,
 
 static bool __object_del(DB_TXN *txn, const char *bucket, const char *key)
 {
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	struct db_obj_key *okey;
 	size_t okey_len;
 	DBT pkey;
@@ -100,7 +100,7 @@ static bool __object_del(DB_TXN *txn, const char *bucket, const char *key)
 
 bool object_del_acls(DB_TXN *txn, const char *bucket, const char *key)
 {
-	DB *acls = tdb.acls;
+	DB *acls = tdbrep.tdb.acls;
 	struct db_acl_key *akey;
 	size_t alloc_len;
 	DBT pkey;
@@ -163,8 +163,8 @@ bool object_del(struct client *cli, const char *user,
 	int rc;
 	enum errcode err = InternalError;
 	size_t alloc_len;
-	DB_ENV *dbenv = tdb.env;
-	DB *objs = tdb.objs;
+	DB_ENV *dbenv = tdbrep.tdb.env;
+	DB *objs = tdbrep.tdb.objs;
 	struct db_obj_key *okey;
 	struct db_obj_ent obje;
 	DBT pkey, pval;
@@ -326,9 +326,9 @@ static bool object_put_end(struct client *cli)
 	struct db_obj_ent oldobj;
 	bool delobj;
 	size_t alloc_len;
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DBT pkey, pval;
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	DB_TXN *txn = NULL;
 	GByteArray *string_data;
 	GArray *string_lens;
@@ -786,7 +786,7 @@ static bool object_put_body(struct client *cli, const char *user,
 		return cli_err(cli, InternalError);
 	}
 
-	objid = objid_next(&tabled_srv.object_count, &tdb);
+	objid = objid_next(&tabled_srv.object_count, &tdbrep.tdb);
 
 	rc = open_chunks(&cli->out_ch, &tabled_srv.all_stor,
 			 cli, objid, content_len);
@@ -865,9 +865,9 @@ static bool object_put_acls(struct client *cli, const char *user,
 {
 	enum errcode err = InternalError;
 	enum ReqACLC canacl;
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	DB_TXN *txn = NULL;
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	char *hdr;
 	char timestr[64];
 	int rc;
@@ -1130,7 +1130,7 @@ static bool object_get_body(struct client *cli, const char *user,
 	bool access_ok, modified = true;
 	GString *extra_hdr;
 	size_t alloc_len;
-	DB *objs = tdb.objs;
+	DB *objs = tdbrep.tdb.objs;
 	struct db_obj_key *okey;
 	struct db_obj_ent *obj = NULL;
 	DBT pkey, pval;

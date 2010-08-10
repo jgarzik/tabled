@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -148,35 +148,15 @@ err_out:
 	return -EIO;
 }
 
-static int add_remote_sites(DB_ENV *dbenv, GList *remotes, int *nsites)
-{
-	int rc;
-	struct db_remote *rp;
-	GList *tmp;
-
-	*nsites = 0;
-	for (tmp = remotes; tmp; tmp = tmp->next) {
-		rp = tmp->data;
-
-		rc = dbenv->repmgr_add_remote_site(dbenv, rp->host, rp->port,
-						   NULL, 0);
-		if (rc) {
-			dbenv->err(dbenv, rc,
-				   "dbenv->add.remote.site host %s port %u",
-				   rp->host, rp->port);
-			return rc;
-		}
-		(*nsites)++;
-	}
-
-	return 0;
-}
-
 static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
 {
 	struct tabledb *tdb = dbenv->app_private;
 
 	switch (event) {
+	case DB_EVENT_PANIC:
+		dbenv->errx(dbenv, "PANIC event is reported, exiting");
+		exit(2);
+		break;
 	case DB_EVENT_REP_CLIENT:
 		tdb->is_master = false;
 		if (tdb->state_cb)
@@ -191,6 +171,14 @@ static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
 		if (tdb->state_cb)
 			(*tdb->state_cb)(TDB_EV_ELECTED);
 		break;
+	case DB_EVENT_REP_NEWMASTER:
+		dbenv->errx(dbenv, "New master is reported: %d",
+			    *(int *)event_info);
+		/* XXX Need to verify that it's the same master as before. */
+		break;
+	case DB_EVENT_REP_STARTUPDONE:
+		dbenv->errx(dbenv, "Client start-up complete");
+		break;
 	default:
 		/* do nothing */
 		break;
@@ -202,15 +190,18 @@ static void db4_event(DB_ENV *dbenv, u_int32_t event, void *event_info)
  * db_password, cb can be NULL
  */
 int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
-	     unsigned int env_flags, const char *errpfx, bool do_syslog,
-	     GList *remotes, char *rep_host, unsigned short rep_port,
+	     const char *errpfx, bool do_syslog, int rep_ourid,
+	     int (*rep_send)(DB_ENV *dbenv, const DBT *ctl, const DBT *rec,
+			     const DB_LSN *lsnp, int envid, uint32_t flags),
+	     bool we_are_master,
 	     void (*cb)(enum db_event))
 {
-	int nsites;
+	unsigned int env_flags;
+	unsigned int rep_flags;
 	int rc;
 	DB_ENV *dbenv;
 
-	tdb->is_master = false;
+	tdb->is_master = we_are_master;
 	tdb->home = db_home;
 	tdb->state_cb = cb;
 
@@ -258,12 +249,6 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 		tdb->keyed = true;
 	}
 
-	rc = dbenv->repmgr_set_local_site(dbenv, rep_host, rep_port, 0);
-	if (rc) {
-		dbenv->err(dbenv, rc, "repmgr_set_local_site");
-		goto err_out;
-	}
-
 	rc = dbenv->set_event_notify(dbenv, db4_event);
 	if (rc) {
 		dbenv->err(dbenv, rc, "set_event_notify");
@@ -283,42 +268,65 @@ int tdb_init(struct tabledb *tdb, const char *db_home, const char *db_password,
 	// 	goto err_out;
 	// }
 
-	rc = dbenv->rep_set_priority(dbenv, 100);
-	if (rc) {
-		dbenv->err(dbenv, rc, "rep_set_priority");
-		goto err_out;
-	}
+	if (rep_send) {
+		rc = dbenv->rep_set_transport(dbenv, rep_ourid, rep_send);
+		if (rc) {
+			dbenv->err(dbenv, rc, "rep_set_transport");
+			goto err_out;
+		}
 
-	/* init DB transactional environment, stored in directory db_home */
-	env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
-	env_flags |= DB_INIT_TXN | DB_INIT_REP;
-	rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
-	if (rc) {
-		dbenv->err(dbenv, rc, "open(dbenv)");
-		goto err_out;
-	}
+		// /*
+		//  * Fix the derbies. This is the only way, since passing of
+		//  * DB_REP_MASTER to rep_start() after a failover will end in:
+		//  * "DB_REP_UNAVAIL: Unable to elect a master" (and a hang).
+		//  */
+		// rc = dbenv->rep_set_priority(dbenv, we_are_master ? 100 : 10);
+		// if (rc) {
+		// 	dbenv->err(dbenv, rc, "rep_set_priority");
+		// 	goto err_out;
+		// }
 
-	rc = add_remote_sites(dbenv, remotes, &nsites);
-	if (rc)
-		goto err_out;
+		env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+		env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
+		env_flags |= DB_INIT_TXN | DB_INIT_REP;
+		rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
+		if (rc) {
+			dbenv->err(dbenv, rc, "open rep");
+			goto err_out;
+		}
 
-	// rc = dbenv->rep_set_nsites(dbenv, nsites + 1);
-	// if (rc) {
-	// 	dbenv->err(dbenv, rc, "rep_set_nsites");
-	// 	goto err_out;
-	// }
+		rep_flags = we_are_master ? DB_REP_MASTER : DB_REP_CLIENT;
+		rc = dbenv->rep_start(dbenv, NULL, rep_flags);
+		if (rc) {
+			dbenv->err(dbenv, rc, "rep_start");
+			goto err_out;
+		}
 
-	rc = dbenv->repmgr_start(dbenv, 2, DB_REP_ELECTION);
-	if (rc) {
-		dbenv->err(dbenv, rc, "repmgr_start");
-		goto err_out;
+	} else {
+		env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
+		env_flags |= DB_INIT_LOG | DB_INIT_LOCK | DB_INIT_MPOOL;
+		env_flags |= DB_INIT_TXN;
+		rc = dbenv->open(dbenv, db_home, env_flags, S_IRUSR | S_IWUSR);
+		if (rc) {
+			dbenv->err(dbenv, rc, "open norep");
+			goto err_out;
+		}
+
+		/* XXX rip this out from tdbadm.c */
+		/*
+		 * The db4 only delivers callbacks if replication was ordered.
+		 * Since we force-set master, we ought to deliver them here
+		 * for the universal code to work as if a master was elected.
+		 */
+		if (cb)
+			(*cb)(we_are_master ? TDB_EV_MASTER : TDB_EV_CLIENT);
 	}
 
 	return 0;
 
 err_out:
 	dbenv->close(dbenv, 0);
-	return rc;
+	return -1;
 }
 
 /*

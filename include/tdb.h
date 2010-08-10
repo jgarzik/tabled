@@ -109,15 +109,12 @@ struct tabledb {
 	DB		*oids;			/* object ID db */
 };
 
-struct db_remote {	/* remotes for tdb_init */
-	char *host;
-	unsigned short port;
-};
-
-extern int tdb_init(struct tabledb *tdb, const char *home, const char *pass,
-	unsigned int env_flags, const char *errpfx, bool do_syslog,
-	GList *remotes, char *rep_host, unsigned short rep_port,
-	void (*cb)(enum db_event));
+extern int tdb_init(struct tabledb *tdb, const char *db_home,
+	const char *db_password, const char *errpfx, bool do_syslog,
+	int rep_our_id,
+	int (*rep_send)(DB_ENV *dbenv, const DBT *ctl, const DBT *rec,
+			const DB_LSN *lsnp, int envid, uint32_t flags),
+	bool we_are_master, void (*cb)(enum db_event));
 extern int tdb_up(struct tabledb *tdb, unsigned int open_flags);
 extern void tdb_down(struct tabledb *tdb);
 extern void tdb_fini(struct tabledb *tdb);

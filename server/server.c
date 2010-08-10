@@ -97,12 +97,15 @@ struct server tabled_srv = {
 	.config			= "/etc/tabled.conf",
 };
 
-struct tabledb tdb;
+struct tablerep tdbrep;
 
 enum {
 	TT_CMD_DUMP,
 	TT_CMD_TDBST_MASTER,
-	TT_CMD_TDBST_SLAVE
+	TT_CMD_TDBST_SLAVE,
+	TT_CMD_MASTER_LINK_RESET,
+	TT_CMD_LINK_SCRUB,
+	TT_CMDNUM
 };
 
 struct compiled_pat patterns[] = {
@@ -114,7 +117,11 @@ struct compiled_pat patterns[] = {
 };
 
 static char *state_name_tdb[ST_TDBNUM] = {
-	"Init", "Open", "Active", "Master", "Slave"
+	"Init", "Open", "Master", "Slave"
+};
+
+static char *cmd_name_tdb[TT_CMDNUM] = {
+	"Dump", "GoMaster", "GoSlave", "MasterLinkReset", "LinkScrub"
 };
 
 static struct {
@@ -340,7 +347,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 	 * not match.
 	 */
 
-	rc = tdb.passwd->get(tdb.passwd, NULL, &key, &val, 0);
+	rc = tdbrep.tdb.passwd->get(tdbrep.tdb.passwd, NULL, &key, &val, 0);
 	if (rc) {
 		pass = strdup("");
 
@@ -350,7 +357,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 			char s[64];
 
 			snprintf(s, 64, "get user '%s'", user);
-			tdb.passwd->err(tdb.passwd, rc, s);
+			tdbrep.tdb.passwd->err(tdbrep.tdb.passwd, rc, s);
 		}
 	} else {
 		pass = val.data;
@@ -387,8 +394,22 @@ static void stats_signal(int signo)
 
 static void stats_dump(void)
 {
-	applog(LOG_INFO, "STATE: TDB %s",
-	    state_name_tdb[tabled_srv.state_tdb]);
+	struct db_remote *rp;
+	GList *tmp;
+
+	applog(LOG_INFO, "TDB: group %s state %s host %s rep_port %d dbid %d%s",
+	       tabled_srv.group, state_name_tdb[tabled_srv.state_tdb],
+	       tabled_srv.ourhost, tabled_srv.rep_port, tdbrep.thisid,
+	       (tabled_srv.mc_delay)? " mc_delay": "");
+	for (tmp = tabled_srv.rep_remotes; tmp; tmp = tmp->next) {
+		rp = tmp->data;
+		applog(LOG_INFO, "PN: name %s dbid %d", rp->name, rp->dbid);
+		if (rp->host)
+			applog(LOG_INFO, "PN: host %s port %d",
+			       rp->host, rp->port);
+		if (rp == tabled_srv.rep_master)
+			applog(LOG_INFO, "PN (master)");
+	}
 	applog(LOG_INFO,
 	       "STATS: poll %lu event %lu tcp_accept %lu opt_write %lu",
 	       tabled_srv.stats.poll,
@@ -403,11 +424,17 @@ static void stats_dump(void)
 
 bool stat_status(struct client *cli, GList *content)
 {
+	struct db_remote *rp;
+	GList *tmp;
 	char *str;
+	int rc;
 
 	/*
 	 * The loadavg is system dependent, we'll figure it out later.
 	 * On Linux, applications read from /proc/loadavg.
+	 *
+	 * The listening info duplicates the hostname until we split
+	 * the replication identifier from hostname.
 	 */
 	if (asprintf(&str,
 		     "<h1>Status</h1>"
@@ -415,11 +442,50 @@ bool stat_status(struct client *cli, GList *content)
 		     tabled_srv.ourhost, tabled_srv.port) < 0)
 		return false;
 	content = g_list_append(content, str);
+
 	if (asprintf(&str,
-		     "<p>State: TDB %s</p>\r\n",
-		     state_name_tdb[tabled_srv.state_tdb]) < 0)
+		     "<p>TDB: group %s "
+		     "state %s host %s rep_port %d dbid %d%s</p>\r\n",
+		     tabled_srv.group, state_name_tdb[tabled_srv.state_tdb],
+		     tabled_srv.ourhost, tabled_srv.rep_port, tdbrep.thisid,
+		     (tabled_srv.mc_delay)? " mc_delay": "") < 0)
 		return false;
 	content = g_list_append(content, str);
+
+	if (tabled_srv.rep_remotes) {
+		if (asprintf(&str, "<p>") < 0)
+			return false;
+		content = g_list_append(content, str);
+		for (tmp = tabled_srv.rep_remotes; tmp; tmp = tmp->next) {
+			rp = tmp->data;
+			rc = asprintf(&str, "Peer: name %s dbid %d",
+				      rp->name, rp->dbid);
+			if (rc < 0)
+				return false;
+			content = g_list_append(content, str);
+			if (rp->host) {
+				rc = asprintf(&str, " host %s port %d",
+					      rp->host, rp->port);
+				if (rc < 0)
+					return false;
+				content = g_list_append(content, str);
+			}
+			if (rp == tabled_srv.rep_master) {
+				str = strdup(" (master)");
+				if (!str)
+					return false;
+				content = g_list_append(content, str);
+			}
+			rc = asprintf(&str, "<br />\r\n");
+			if (rc < 0)
+				return false;
+			content = g_list_append(content, str);
+		}
+		if (asprintf(&str, "</p>\r\n") < 0)
+			return false;
+		content = g_list_append(content, str);
+	}
+
 	if (asprintf(&str,
 		     "<p>Stats: "
 		     "poll %lu event %lu tcp_accept %lu opt_write %lu</p>\r\n"
@@ -1421,7 +1487,7 @@ static void add_chkpt_timer(void)
 
 static void tdb_checkpoint(int fd, short events, void *userdata)
 {
-	DB_ENV *dbenv = tdb.env;
+	DB_ENV *dbenv = tdbrep.tdb.env;
 	int rc;
 
 	if (debugging)
@@ -1436,29 +1502,50 @@ static void tdb_checkpoint(int fd, short events, void *userdata)
 	add_chkpt_timer();
 }
 
+static void add_reup_timer(void)
+{
+	static const struct timeval tv = { TABLED_REUP_SEC, 0 };
+
+	if (evtimer_add(&tabled_srv.reup_timer, &tv) < 0)
+		applog(LOG_WARNING, "unable to add reup timer");
+}
+
+static void tdb_reup(int fd, short events, void *userdata)
+{
+
+	if (tabled_srv.state_want == ST_W_MASTER &&
+	    tabled_srv.state_tdb == ST_TDB_MASTER) {
+		/*
+		 * An upgrade failed, retry.
+		 */
+		if (rtdb_restart(&tdbrep, true)) {
+			applog(LOG_WARNING, "Cannot restart to master");
+			add_reup_timer();
+		}
+	}
+}
+
 static void tdb_state_cb(enum db_event event)
 {
 	unsigned char cmd;
 
 	switch (event) {
 	case TDB_EV_ELECTED:
-		/*
-		 * Safe to stop ignoring bogus client indication,
-		 * so unmute us by advancing the state.
-		 */
-		if (tabled_srv.state_tdb == ST_TDB_OPEN)
-			tabled_srv.state_tdb = ST_TDB_ACTIVE;
+		/* Just ignore this, we only care for the end state. */
 		break;
 	case TDB_EV_CLIENT:
+		/* P3 */ applog(LOG_INFO, "TDB event: slave, state %s", state_name_tdb[tabled_srv.state_tdb]);
+		goto overmsg;
 	case TDB_EV_MASTER:
+		/* P3 */ applog(LOG_INFO, "TDB event: master, state %s", state_name_tdb[tabled_srv.state_tdb]);
+		overmsg:
 		/*
 		 * This callback runs on the context of the replication
 		 * manager thread, and calling any of our functions thus
 		 * turns our program into a multi-threaded one. Instead
 		 * we signal the main thread to do the processing.
 		 */
-		if (tabled_srv.state_tdb != ST_TDB_INIT &&
-		    tabled_srv.state_tdb != ST_TDB_OPEN) {
+		if (tabled_srv.state_tdb != ST_TDB_INIT) {
 			if (event == TDB_EV_MASTER)
 				cmd = TT_CMD_TDBST_MASTER;
 			else
@@ -1469,6 +1556,55 @@ static void tdb_state_cb(enum db_event event)
 	default:
 		applog(LOG_WARNING, "API confusion with TDB, event 0x%x", event);
 		tabled_srv.state_tdb = ST_TDB_OPEN;  /* wrong, stub for now */
+	}
+}
+
+void cld_update_cb(void)
+{
+	switch (tabled_srv.state_want) {
+	case ST_W_MASTER:
+		if (tabled_srv.state_tdb == ST_TDB_MASTER) {
+			; /* CLD caught up to DB, better late than never */
+		} else if (tabled_srv.state_tdb == ST_TDB_SLAVE) {
+			/* CLD tells us to upgrade, do it */
+			if (rtdb_restart(&tdbrep, true)) {
+				applog(LOG_WARNING,
+				       "Unable to restart to master");
+				/*
+				 * Don't try rtdb_fini here, will end in a hang.
+				 * Instead, retry endlessly until it succeeds.
+				 */
+				add_reup_timer();
+			}
+		} else {
+			applog(LOG_WARNING, "Want Master while in state %s",
+			       state_name_tdb[tabled_srv.state_tdb]);
+		}
+		break;
+	case ST_W_SLAVE:
+		if (tabled_srv.state_tdb == ST_TDB_SLAVE) {
+			; /* all good */
+		} else if (tabled_srv.state_tdb == ST_TDB_MASTER) {
+			/*
+			 * OK, this is bad. We lost our CLD session and some
+			 * other node went master on us. Even if we downgrade
+			 * the database now, some clients may have done some
+			 * operations while CLD was bouncing. Complain loudly.
+			 */
+			applog(LOG_WARNING,
+			       "Downgrading the database,"
+			       " data loss is possible");
+			if (rtdb_restart(&tdbrep, false)) {
+				tabled_srv.state_tdb = ST_TDB_INIT;
+				rtdb_fini(&tdbrep);
+			}
+		} else {
+			applog(LOG_WARNING, "Want Slave while in state %s",
+			       state_name_tdb[tabled_srv.state_tdb]);
+		}
+		break;
+	default:
+		;
 	}
 }
 
@@ -1485,7 +1621,6 @@ int stor_update_cb(void)
 {
 	int num_up;
 	struct storage_node *stn;
-	unsigned int env_flags;
 
 	if (debugging)
 		applog(LOG_DEBUG, "Know of potential %d storage node(s)",
@@ -1518,15 +1653,13 @@ int stor_update_cb(void)
 	 * We initiate operations even if there's no redundancy in order
 	 * to permit bootstrapping and build-time self-checking.
 	 */
+/* P3 */ applog(LOG_INFO, "storage updated, TDB state %s", state_name_tdb[tabled_srv.state_tdb]);
 	if (tabled_srv.state_tdb == ST_TDB_INIT) {
 		tabled_srv.state_tdb = ST_TDB_OPEN;
-
-		env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
-		if (tdb_init(&tdb, tabled_srv.tdb_dir, NULL,
-			     env_flags, "tabled", true,
-			     tabled_srv.rep_remotes,
-			     tabled_srv.ourhost, tabled_srv.rep_port,
-			     tdb_state_cb)) {
+		if (rtdb_start(&tdbrep, tabled_srv.tdb_dir,
+			      tabled_srv.state_want == ST_W_MASTER,
+			      tabled_srv.rep_master,
+			      tabled_srv.rep_port, tdb_state_cb)) {
 			tabled_srv.state_tdb = ST_TDB_INIT;
 			applog(LOG_ERR, "Failed to open TDB, limping");
 		}
@@ -1535,8 +1668,120 @@ int stor_update_cb(void)
 		 * FIXME This is where we should process redundancy decreases.
 		 */
 		;
+	} else if (tabled_srv.state_tdb == ST_TDB_SLAVE) {
+		if (tabled_srv.state_want == ST_W_MASTER) {
+			if (rtdb_restart(&tdbrep, true)) {
+				applog(LOG_WARNING,
+				       "Failed to restart to master");
+				add_reup_timer();
+			}
+		}
 	}
 	return num_up;
+}
+
+int tdb_slave_login_cb(int srcid)
+{
+	struct db_remote *master;
+
+	master = tabled_srv.rep_master;
+	if (!master) {
+		applog(LOG_INFO, "No master at login");
+		return -1;
+	}
+	if (master->dbid == 0) {
+		applog(LOG_INFO, "Master dbid %d", srcid);
+	} else {
+		if (master->dbid != srcid) {
+			/*
+			 * This is probably a bad news. Perhaps master rebooted
+			 * on the other side of the network partition and yet
+			 * somehow won a lock in CLD, or something even weirder.
+			 * But we don't know.
+			 */
+			applog(LOG_INFO,
+			       "Master switch from dbid %d to dbid %d",
+			       master->dbid, srcid);
+		}
+	}
+	master->dbid = srcid;
+
+	if (tabled_srv.state_tdb == ST_TDB_OPEN) {
+		applog(LOG_INFO, "Established link, master %s dbid %d",
+		       master->name, master->dbid);
+		if (tabled_srv.state_want != ST_W_SLAVE) {
+			applog(LOG_ERR, "Unexpected TDB state %s, limping",
+			       state_name_tdb[tabled_srv.state_tdb]);
+			rtdb_fini(&tdbrep);
+			tabled_srv.state_tdb = ST_TDB_INIT;
+			return -1;
+		}
+		if (rtdb_start(&tdbrep, tabled_srv.tdb_dir,
+			       false,
+			       master,
+			       tabled_srv.rep_port, tdb_state_cb)) {
+			tabled_srv.state_tdb = ST_TDB_INIT;
+			applog(LOG_ERR, "Failed to open TDB, limping");
+			return -1;
+		}
+	} else if (tabled_srv.state_tdb == ST_TDB_SLAVE) {
+		applog(LOG_INFO, "Recovered master connection");
+	} else {
+		applog(LOG_INFO, "Confused about connections");
+	}
+	return 0;
+}
+
+void tdb_slave_disc_cb(void)
+{
+	static const struct timeval tv = { TABLED_MCWAIT_SEC, 0 };
+
+	if (tabled_srv.mc_delay)
+		return;
+	evtimer_add(&tabled_srv.mc_timer, &tv);
+	tabled_srv.mc_delay = true;
+}
+
+static void tdb_mc_delay(int fd, short events, void *userdata)
+{
+	static const unsigned char cmd = TT_CMD_MASTER_LINK_RESET;
+
+	tabled_srv.mc_delay = false;
+	write(tabled_srv.ev_pipe[1], &cmd, 1);
+}
+
+void tdb_conn_scrub_cb(void)
+{
+	unsigned char cmd;
+
+	cmd = TT_CMD_LINK_SCRUB;
+	write(tabled_srv.ev_pipe[1], &cmd, 1);
+}
+
+struct db_remote *tdb_find_remote_byname(const char *name)
+{
+	struct db_remote *rp;
+	GList *tmp;
+
+	for (tmp = tabled_srv.rep_remotes; tmp; tmp = tmp->next) {
+		rp = tmp->data;
+		if (strcmp(rp->name, name) == 0)
+			return rp;
+	}
+	return NULL;
+}
+
+struct db_remote *tdb_find_remote_byid(int id)
+{
+	struct db_remote *rp;
+	GList *tmp;
+
+	for (tmp = tabled_srv.rep_remotes; tmp; tmp = tmp->next) {
+		rp = tmp->data;
+		if (rp->dbid == id)
+			return rp;
+	}
+	return NULL;
 }
 
 static int net_open_socket(int addr_fam, int sock_type, int sock_prot,
@@ -1833,26 +2078,66 @@ static void compile_patterns(void)
 	}
 }
 
-static void tdb_state_process(enum st_tdb new_state)
+static void tdb_startup(void)
 {
 	unsigned int db_flags;
 
-	if (debugging)
-		applog(LOG_DEBUG, "TDB state > %s", state_name_tdb[new_state]);
-	if ((new_state == ST_TDB_MASTER || new_state == ST_TDB_SLAVE) &&
-	    tabled_srv.state_tdb == ST_TDB_ACTIVE) {
+	db_flags = DB_CREATE | DB_THREAD;
+	if (tdb_up(&tdbrep.tdb, db_flags))
+		return;
+	if (objid_init(&tabled_srv.object_count, &tdbrep.tdb)) {
+		tdb_down(&tdbrep.tdb);
+		return;
+	}
+	add_chkpt_timer();
+	rep_start();
+	net_listen_client();
+}
 
-		db_flags = DB_CREATE | DB_THREAD;
-		if (tdb_up(&tdb, db_flags))
-			return;
+static void tdb_state_process(enum st_tdb new_state)
+{
 
-		if (objid_init(&tabled_srv.object_count, &tdb)) {
-			tdb_down(&tdb);
-			return;
+	applog(LOG_INFO, "TDB state %s > %s",
+	       state_name_tdb[tabled_srv.state_tdb], state_name_tdb[new_state]);
+
+	if (tabled_srv.state_tdb == ST_TDB_OPEN) {
+		if (new_state == ST_TDB_MASTER) {
+			if (tabled_srv.state_want == ST_W_MASTER) {
+				tdb_startup();
+			} else {
+				/*
+				 * We want slave if we cannot connect to CLD,
+				 * or we cannot lock the master file, which
+				 * means that other master may exist.
+				 * But the db goes master on us, so
+				 * either the other master is dead or we're
+				 * misconfigured so DBs cannot talk.
+				 * Either way, we should poke db until the
+				 * desired result is accomplished. XXX
+				 */
+				applog(LOG_INFO, "TDB went Master on us");
+			}
+		} else if (new_state == ST_TDB_SLAVE) {
+			applog(LOG_INFO, "TDB went Slave, so whatever");
+			;
+		} else {
+			applog(LOG_ERR, "TDB went to unexpected state");
 		}
-		add_chkpt_timer();
-		rep_start();
-		net_listen_client();
+	} else if (tabled_srv.state_tdb == ST_TDB_SLAVE) {
+		if (new_state == ST_TDB_MASTER) {
+			if (tabled_srv.state_want == ST_W_MASTER) {
+				tdb_startup();
+			} else {
+				/*
+				 * This is either a net split or CLD is doing
+				 * its timeouts and so we do not want to be
+				 * a master yet.
+				 */
+				applog(LOG_ERR, "TDB upgraded on us");
+			}
+		} else {
+			applog(LOG_ERR, "TDB is confused");
+		}
 	}
 }
 
@@ -1869,6 +2154,11 @@ static void internal_event(int fd, short events, void *userdata)
 	if (rrc < 1) {
 		applog(LOG_WARNING, "pipe short read");
 		abort();
+	}
+
+	if (debugging) {
+		applog(LOG_DEBUG, "Context Event %s, TDB state %s",
+		    cmd_name_tdb[cmd], state_name_tdb[tabled_srv.state_tdb]);
 	}
 
 	switch (cmd) {
@@ -1890,6 +2180,15 @@ static void internal_event(int fd, short events, void *userdata)
 		}
 		break;
 
+	case TT_CMD_MASTER_LINK_RESET:
+		rtdb_mc_reset(&tdbrep, tabled_srv.state_want == ST_W_MASTER,
+			      tabled_srv.rep_master, tabled_srv.rep_port);
+		break;
+
+	case TT_CMD_LINK_SCRUB:
+		rtdb_dbc_scrub(&tdbrep);
+		break;
+
 	default:
 		applog(LOG_WARNING, "%s BUG: command 0x%x", __func__, cmd);
 		break;
@@ -1905,6 +2204,7 @@ int main (int argc, char *argv[])
 	INIT_LIST_HEAD(&tabled_srv.all_stor);
 	INIT_LIST_HEAD(&tabled_srv.write_compl_q);
 	tabled_srv.state_tdb = ST_TDB_INIT;
+	tabled_srv.rep_next_id = DBID_MIN;
 
 	/* isspace() and strcasecmp() consistency requires this */
 	setlocale(LC_ALL, "C");
@@ -1978,6 +2278,8 @@ int main (int argc, char *argv[])
 	tabled_srv.evbase_main = event_init();
 	event_base_rep = event_base_new();
 	evtimer_set(&tabled_srv.chkpt_timer, tdb_checkpoint, NULL);
+	evtimer_set(&tabled_srv.mc_timer, tdb_mc_delay, NULL);
+	evtimer_set(&tabled_srv.reup_timer, tdb_reup, NULL);
 
 	/* set up internal communication pipe */
 	if (pipe(tabled_srv.ev_pipe) < 0) {
@@ -1991,6 +2293,13 @@ int main (int argc, char *argv[])
 		goto err_pevt;
 	}
 
+	/* late-construct structures with allocations */
+	if (rtdb_init(&tdbrep, tabled_srv.ourhost)) {
+		applog(LOG_WARNING, "rtdb_init");
+		rc = 1;
+		goto err_rtdb;
+	}
+
 	/* set up server networking */
 	if (tabled_srv.status_port) {
 		if (net_open_known(tabled_srv.status_port, true) == 0)
@@ -2000,7 +2309,8 @@ int main (int argc, char *argv[])
 	if (rc)
 		goto err_out_net;
 
-	if (cld_begin(tabled_srv.ourhost, tabled_srv.group, verbose) != 0) {
+	if (cld_begin(tabled_srv.ourhost, tabled_srv.group,
+		      tabled_srv.rep_name, verbose) != 0) {
 		rc = 1;
 		goto err_cld_session;
 	}
@@ -2023,13 +2333,13 @@ err_cld_session:
 err_out_net:
 	if (tabled_srv.state_tdb == ST_TDB_MASTER ||
 	    tabled_srv.state_tdb == ST_TDB_SLAVE) {
-		tdb_down(&tdb);
-		tdb_fini(&tdb);
-	} else if (tabled_srv.state_tdb == ST_TDB_OPEN ||
-		   tabled_srv.state_tdb == ST_TDB_ACTIVE) {
-		tdb_fini(&tdb);
+		tdb_down(&tdbrep.tdb);
+		rtdb_fini(&tdbrep);
+	} else if (tabled_srv.state_tdb == ST_TDB_OPEN) {
+		rtdb_fini(&tdbrep);
 	}
-/* err_tdb_init: */
+err_rtdb:
+	event_del(&tabled_srv.pevt);
 err_pevt:
 	close(tabled_srv.ev_pipe[0]);
 	close(tabled_srv.ev_pipe[1]);

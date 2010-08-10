@@ -35,6 +35,8 @@
 
 #define ALIGN8(n)	((8 - ((n) & 7)) & 7)
 
+#define MASTER_FILE	"MASTER"
+
 struct chunk_node {
 	struct list_head link;
 	char name[65];
@@ -63,18 +65,22 @@ struct cld_session {
 	int actx;		/* Active host cldv[actx] */
 	struct cld_host cldv[N_CLD];
 
+	char *thisname;
 	char *thisgroup;
 	char *thishost;
 	char *cfname;		/* /tabled-group directory */
 	struct ncld_fh *cfh;	/* /tabled-group directory, keep open for scan */
-	char *ffname;		/* /tabled-group/thishost */
-	struct ncld_fh *ffh;	/* /tabled-group/thishost, keep open for lock */
+	char *ffname;		/* /tabled-group/thisname */
+	struct ncld_fh *ffh;	/* /tabled-group/thisname, keep open for lock */
+	char *mfname;		/* /tabled-group/MASTER */
+	struct ncld_fh *mfh;	/* /tabled-group/MASTER, keep open for lock */
 	char *xfname;		/* /chunk-GROUP directory */
 
 	struct list_head chunks;	/* found in xfname, struct chunk_node */
 };
 
 static int cldu_set_cldc(struct cld_session *sp, int newactive);
+static int scan_peers(struct cld_session *sp);
 static int scan_chunks(struct cld_session *sp);
 static void next_chunk(struct cld_session *sp, struct chunk_node *np);
 static void add_remote(const char *name);
@@ -113,12 +119,16 @@ static int cldu_nextactive(struct cld_session *sp)
  * chunkservers that it uses, so this function only takes one group argument.
  */
 static int cldu_setgroup(struct cld_session *sp,
-			const char *thisgroup, const char *thishost)
+			 const char *thisgroup, const char *thishost,
+			 const char *thisname)
 {
 	char *mem;
 
 	if (thisgroup == NULL) {
 		thisgroup = "default";
+	}
+	if (thisname == NULL) {
+		thisname = thishost;
 	}
 
 	sp->thisgroup = strdup(thisgroup);
@@ -127,14 +137,21 @@ static int cldu_setgroup(struct cld_session *sp,
 	sp->thishost = strdup(thishost);
 	if (!sp->thishost)
 		goto err_oom;
+	sp->thisname = strdup(thisname);
+	if (!sp->thisname)
+		goto err_oom;
 
 	if (asprintf(&mem, "/tabled-%s", thisgroup) == -1)
 		goto err_oom;
 	sp->cfname = mem;
 
-	if (asprintf(&mem, "/tabled-%s/%s", thisgroup, thishost) == -1)
+	if (asprintf(&mem, "/tabled-%s/%s", thisgroup, thisname) == -1)
 		goto err_oom;
 	sp->ffname = mem;
+
+	if (asprintf(&mem, "/tabled-%s/%s", thisgroup, MASTER_FILE) == -1)
+		goto err_oom;
+	sp->mfname = mem;
 
 	if (asprintf(&mem, "/chunk-%s", thisgroup) == -1)
 		goto err_oom;
@@ -145,6 +162,259 @@ static int cldu_setgroup(struct cld_session *sp,
 err_oom:
 	applog(LOG_WARNING, "OOM in cldu");
 	return 0;
+}
+
+/*
+ * Ugh, side effects on tabled_srv.rep_master.
+ */
+static void cldu_parse_master(const char *mfname, const char *mfile, long len)
+{
+	enum lex_state { lex_tag, lex_colon, lex_val };
+	const char *tag, *val;
+	int taglen;
+	const char *name, *host, *port;
+	int namelen, hostlen, portlen;
+	char namebuf[65], hostbuf[65], portbuf[15];
+	long portnum;
+	enum lex_state state;
+	struct db_remote *rp;
+	const char *p;
+	char c;
+
+	name = NULL;
+	namelen = 0;
+	host = NULL;
+	hostlen = 0;
+	port = NULL;
+	portlen = 0;
+
+	p = mfile;
+	tag = p;
+	val = NULL;
+	state = lex_tag;
+	for (;;) {
+		if (p >= mfile+len)
+			break;
+		c = *p++;
+		if (state == lex_tag) {
+			if (c == ':') {
+				val = p;
+				state = lex_colon;
+				taglen = (p-1) - tag;
+			} else if (c == '\n') {
+				if (debugging)
+					applog(LOG_DEBUG,
+					       "%s: No colon", mfname);
+				tag = p;
+				val = NULL;
+				state = lex_tag;
+			}
+		} else if (state == lex_colon) {
+			if (c == ' ') {
+				val = p;
+			} else if (c == '\n') {
+				if (debugging)
+					applog(LOG_DEBUG,
+					       "%s: Empty value", mfname);
+				tag = p;
+				val = NULL;
+				state = lex_tag;
+			} else {
+				state = lex_val;
+			}
+		} else if (state == lex_val) {
+			if (c == '\n') {
+				if (taglen == sizeof("name")-1 &&
+				    memcmp(tag, "name", taglen) == 0) {
+					name = val;
+					namelen = (p-1) - val;
+				} else if (taglen == sizeof("host")-1 &&
+				    memcmp(tag, "host", taglen) == 0) {
+					host = val;
+					hostlen = (p-1) - val;
+				} else if (taglen == sizeof("port")-1 &&
+				    memcmp(tag, "port", taglen) == 0) {
+					port = val;
+					portlen = (p-1) - val;
+				} else {
+					if (debugging)
+						applog(LOG_DEBUG,
+						       "%s: Unknown tag %c[%d]",
+						       mfname, tag[0], taglen);
+				}
+				tag = p;
+				val = NULL;
+				state = lex_tag;
+			}
+		} else {
+			return;
+		}
+	}
+
+	if (!name || !namelen) {
+		if (debugging)
+			applog(LOG_DEBUG, "%s: No name", mfname);
+		return;
+	}
+	if (!host || !hostlen) {
+		if (debugging)
+			applog(LOG_DEBUG, "%s: No host", mfname);
+		return;
+	}
+	if (!port || !portlen) {
+		if (debugging)
+			applog(LOG_DEBUG, "%s: No port", mfname);
+		return;
+	}
+
+	if (namelen >= sizeof(namebuf)) {
+		applog(LOG_ERR, "Long master name");
+		return;
+	}
+	memcpy(namebuf, name, namelen);
+	namebuf[namelen] = 0;
+
+	if (hostlen >= sizeof(hostbuf)) {
+		applog(LOG_ERR, "Long host");
+		return;
+	}
+	memcpy(hostbuf, host, hostlen);
+	hostbuf[hostlen] = 0;
+
+	if (portlen >= sizeof(portbuf)) {
+		applog(LOG_ERR, "Long port");
+		return;
+	}
+	memcpy(portbuf, port, portlen);
+	portbuf[portlen] = 0;
+	portnum = strtol(port, NULL, 10);
+	if (portnum <= 0 || portnum >= 65536) {
+		applog(LOG_ERR, "Bad port %s", portbuf);
+		return;
+	}
+
+	rp = tdb_find_remote_byname(namebuf);
+	if (!rp) {
+		if (debugging)
+			applog(LOG_DEBUG, "%s: Not found master %s",
+			       mfname, namebuf);
+		return;
+	}
+
+	if (debugging)
+		applog(LOG_DEBUG, "Found master %s host %s port %u",
+		       namebuf, hostbuf, portnum);
+
+	rp->host = strdup(hostbuf);
+	rp->port = portnum;
+	if (!rp->host)
+		return;
+	tabled_srv.rep_master = rp;
+}
+
+static void cldu_get_master(const char *mfname, struct ncld_fh *mfh)
+{
+	struct ncld_read *nrp;
+	struct timespec tm;
+	int error;
+
+	nrp = ncld_get(mfh, &error);
+	if (!nrp) {
+		applog(LOG_ERR, "CLD get(%s) failed: %d", mfname, error);
+		return;
+	}
+
+	if (nrp->length < 3) {
+		ncld_read_free(nrp);
+
+		/*
+		 * Since master opens, locks, and writes, in that order,
+		 * there's a gap between the lock and write. So, unrace a bit.
+		 */
+		tm.tv_sec = 2;
+		tm.tv_nsec = 0;
+		nanosleep(&tm, NULL);
+
+		nrp = ncld_get(mfh, &error);
+		if (!nrp) {
+			applog(LOG_ERR, "CLD get(%s) failed: %d", mfname, error);
+			return;
+		}
+
+		if (nrp->length < 3) {
+			applog(LOG_ERR, "CLD master(%s) is empty", mfname);
+			ncld_read_free(nrp);
+			return;
+		}
+	}
+
+	cldu_parse_master(mfname, nrp->ptr, nrp->length);
+	ncld_read_free(nrp);
+}
+
+/*
+ * Lock the MASTER file, write or read it as needed.
+ * N.B. Only call this if you know that mfh is closed or never open:
+ * right after cldu_set_cldc (disposing of session closes handles),
+ * or when we were slave and so should not kept mfh ...
+ * FIXME this will become more interesting when we keep mfh open in slave
+ * state so we can have outstanding locks for master failover notification.
+ */
+static int cldu_set_master(struct cld_session *sp)
+{
+	char *buf;
+	int len;
+	int error;
+	int rc;
+
+	if (!sp->nsp)
+		return -1;
+
+	/* Maybe drop this later, after notifications work. */
+	if (debugging) {
+		rc = g_list_length(sp->nsp->handles);
+		applog(LOG_DEBUG, "open handles %d", rc);
+	}
+
+	sp->mfh = ncld_open(sp->nsp, sp->mfname,
+			    COM_READ | COM_WRITE | COM_LOCK | COM_CREATE,
+			    &error, 0, NULL, NULL);
+	if (!sp->mfh) {
+		applog(LOG_ERR, "CLD open(%s) failed: %d", sp->mfname, error);
+		goto err_open;
+	}
+
+	error = ncld_trylock(sp->mfh);
+	if (error) {
+		applog(LOG_INFO, "CLD lock(%s) failed: %d", sp->mfname, error);
+		cldu_get_master(sp->mfname, sp->mfh);
+		goto err_lock;
+	}
+
+	len = asprintf(&buf, "name: %s\nhost: %s\nport: %u\n",
+		       sp->thisname, sp->thishost, tabled_srv.rep_port);
+	if (len < 0) {
+		applog(LOG_ERR, "internal error: no core");
+		goto err_wmem;
+	}
+
+	rc = ncld_write(sp->mfh, buf, len);
+	if (rc) {
+		applog(LOG_ERR, "CLD put(%s) failed: %d", sp->mfname, rc);
+		goto err_write;
+	}
+
+	free(buf);
+	return 0;
+
+err_write:
+	free(buf);
+err_wmem:
+	/* ncld_unlock() - close will unlock */
+err_lock:
+	ncld_close(sp->mfh);
+err_open:
+	return -1;
 }
 
 static void cldu_tm_rescan(int fd, short events, void *userdata)
@@ -162,14 +432,37 @@ static void cldu_tm_rescan(int fd, short events, void *userdata)
 			sp->nsp = NULL;
 		}
 		newactive = cldu_nextactive(sp);
-		if (cldu_set_cldc(sp, newactive)) {
-			evtimer_add(&sp->tm_rescan, &cldu_rescan_delay);
-			return;
+		if (cldu_set_cldc(sp, newactive))
+			goto out;
+
+		if (cldu_set_master(sp) == 0) {
+			tabled_srv.state_want = ST_W_MASTER;
+		} else {
+			if (debugging)
+				applog(LOG_DEBUG, "Unable to relock %s",
+				       sp->mfname);
+			tabled_srv.state_want = ST_W_SLAVE;
 		}
+		cld_update_cb();
+
 		sp->is_dead = false;
+	} else {
+		if (tabled_srv.state_want == ST_W_SLAVE) {
+			if (cldu_set_master(sp) == 0) {
+				tabled_srv.state_want = ST_W_MASTER;
+			} else {
+				if (debugging)
+					applog(LOG_DEBUG, "Unable to lock %s",
+					       sp->mfname);
+			}
+		}
 	}
 
+	if (scan_peers(sp) != 0)
+		goto out;
 	scan_chunks(sp);
+
+ out:
 	evtimer_add(&sp->tm_rescan, &cldu_rescan_delay);
 }
 
@@ -201,12 +494,6 @@ static void cldu_sess_event(void *priv, uint32_t what)
 static int cldu_set_cldc(struct cld_session *sp, int newactive)
 {
 	struct cldc_host *hp;
-	struct ncld_read *nrp;
-	char buf[100];
-	const char *ptr;
-	int dir_len;
-	int total_len, rec_len, name_len;
-	int len;
 	struct timespec tm;
 	int error;
 	int rc;
@@ -261,6 +548,7 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 
 	/*
 	 * Then, create the membership file for us.
+	 * We lock it in case of two tabled running with same name by mistake.
 	 */
 	sp->ffh = ncld_open(sp->nsp, sp->ffname,
 			    COM_WRITE | COM_LOCK | COM_CREATE,
@@ -285,11 +573,7 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		/*
 		 * The usual reason why we get a lock conflict is
 		 * restarting too quickly and hitting the previous lock
-		 * that is going to disappear soon.
-		 *
-		 * FIXME: However, it may also be that a master
-		 * is ok we we should become a slave, e.g. start TDB.
-		 * We do not support multi-node, but we should.
+		 * that is going to disappear soon. Just wait it out.
 		 */
 		tm.tv_sec = 10;
 		tm.tv_nsec = 0;
@@ -299,21 +583,43 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	/*
 	 * Write the file with our connection parameters.
 	 */
-	len = snprintf(buf, sizeof(buf), "port: %u\n", tabled_srv.rep_port);
-	if (len >= sizeof(buf)) {
-		applog(LOG_ERR, "internal error: overflow for port (%d)", len);
-		goto err_wmem;
-	}
-
-	rc = ncld_write(sp->ffh, buf, len);
+	rc = ncld_write(sp->ffh, "-\n", 2);
 	if (rc) {
 		applog(LOG_ERR, "CLD put(%s) failed: %d", sp->ffname, rc);
 		goto err_write;
 	}
 
 	/*
-	 * Read the directory.
+	 * Finally, scan cfh to find peers, add with global effects.
 	 */
+	if (scan_peers(sp) != 0)
+		goto err_pscan;
+
+	return 0;
+
+err_pscan:
+err_write:
+err_lock:
+	ncld_close(sp->ffh);	/* session-close closes these, maybe drop */
+err_fopen:
+	ncld_close(sp->cfh);
+err_copen:
+	ncld_sess_close(sp->nsp);
+	sp->nsp = NULL;
+err_nsess:
+err_addr:
+	return -1;
+}
+
+static int scan_peers(struct cld_session *sp)
+{
+	struct ncld_read *nrp;
+	char buf[65];
+	const char *ptr;
+	int dir_len;
+	int total_len, rec_len, name_len;
+	int error;
+
 	nrp = ncld_get(sp->cfh, &error);
 	if (!nrp) {
 		applog(LOG_ERR, "CLD get(%s) failed: %d", sp->cfname, error);
@@ -336,13 +642,20 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 		else
 			buf[64] = 0;
 
-		if (!strcmp(buf, sp->thishost)) {
+		if (!strcmp(buf, MASTER_FILE)) {
+			; /* ignore special entry */
+		} else if (!strcmp(buf, sp->thisname)) {
 			if (debugging)
 				applog(LOG_DEBUG, " %s (ourselves)", buf);
 		} else {
-			if (debugging)
-				applog(LOG_DEBUG, " %s", buf);
-			add_remote(buf);
+			if (tdb_find_remote_byname(buf)) {
+				if (debugging)
+					applog(LOG_DEBUG, " %s", buf);
+			} else {
+				if (debugging)
+					applog(LOG_DEBUG, " %s (new)", buf);
+				add_remote(buf);
+			}
 		}
 
 		ptr += total_len;
@@ -350,21 +663,9 @@ static int cldu_set_cldc(struct cld_session *sp, int newactive)
 	}
 
 	ncld_read_free(nrp);
-
 	return 0;
 
 err_dread:
-err_write:
-err_wmem:
-err_lock:
-	ncld_close(sp->ffh);	/* session-close closes these, maybe drop */
-err_fopen:
-	ncld_close(sp->cfh);
-err_copen:
-	ncld_sess_close(sp->nsp);
-	sp->nsp = NULL;
-err_nsess:
-err_addr:
 	return -1;
 }
 
@@ -508,9 +809,6 @@ err_mem:
 	return;
 }
 
-/*
- * FIXME need to read port number from the file (port:<space>num).
- */
 static void add_remote(const char *name)
 {
 	struct db_remote *rp;
@@ -518,10 +816,15 @@ static void add_remote(const char *name)
 	rp = malloc(sizeof(struct db_remote));
 	if (!rp)
 		return;
+	memset(rp, 0, sizeof(struct db_remote));
 
-	rp->port = 8083;
-	rp->host = strdup(name);
-	if (!rp->host) {
+	/*
+	 * Master assigns global IDs now, distributes them in login protocol.
+	 */
+	rp->dbid = DBID_NONE;
+
+	rp->name = strdup(name);
+	if (!rp->name) {
 		free(rp);
 		return;
 	}
@@ -564,7 +867,8 @@ void cld_init()
 /*
  * This initiates our sole session with a CLD instance.
  */
-int cld_begin(const char *thishost, const char *thisgroup, int verbose)
+int cld_begin(const char *thishost, const char *thisgroup,
+	      const char *thisname, int verbose)
 {
 	static struct cld_session *sp = &ses;
 	struct timespec tm;
@@ -575,7 +879,7 @@ int cld_begin(const char *thishost, const char *thisgroup, int verbose)
 
 	evtimer_set(&ses.tm_rescan, cldu_tm_rescan, &ses);
 
-	if (cldu_setgroup(sp, thisgroup, thishost)) {
+	if (cldu_setgroup(sp, thisgroup, thishost, thisname)) {
 		/* Already logged error */
 		goto err_group;
 	}
@@ -624,6 +928,14 @@ int cld_begin(const char *thishost, const char *thisgroup, int verbose)
 		if (++retry_cnt == 5)
 			goto err_net;
 		newactive = cldu_nextactive(sp);
+	}
+
+	if (cldu_set_master(sp) == 0) {
+		if (debugging)
+			applog(LOG_DEBUG, "Locked %s", sp->mfname);
+		tabled_srv.state_want = ST_W_MASTER;
+	} else {
+		tabled_srv.state_want = ST_W_SLAVE;
 	}
 
 	retry_cnt = 0;
@@ -696,8 +1008,12 @@ void cld_end(void)
 	sp->ffname = NULL;
 	free(sp->xfname);
 	sp->xfname = NULL;
+	free(sp->mfname);
+	sp->mfname = NULL;
 	free(sp->thisgroup);
 	sp->thisgroup = NULL;
 	free(sp->thishost);
 	sp->thishost = NULL;
+	free(sp->thisname);
+	sp->thisname = NULL;
 }

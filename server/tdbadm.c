@@ -45,11 +45,10 @@ enum various_modes {
 static int mode_adm;
 static unsigned long invalid_lines;
 static char *tdb_dir;
-static unsigned short rep_port;
 static char *config = "/etc/tabled.conf";
-static char *ourhost;
 
 static struct tabledb tdb;
+static bool tdb_is_master;
 
 const char *argp_program_version = PACKAGE_VERSION;
 
@@ -110,7 +109,6 @@ static void cfg_elm_end(GMarkupParseContext *context,
 {
 	struct config_context *cc = user_data;
 	struct stat statb;
-	int n;
 
 	if (!strcmp(element_name, "TDB") && cc->text) {
 		if (!tdb_dir) {
@@ -134,25 +132,6 @@ static void cfg_elm_end(GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
-	else if (!strcmp(element_name, "ForceHost") && cc->text) {
-		free(ourhost);
-		ourhost = cc->text;
-		cc->text = NULL;
-	}
-
-	else if (!strcmp(element_name, "TDBRepPort") && cc->text) {
-		n = strtol(cc->text, NULL, 10);
-		if (n <= 0 || n >= 65536) {
-			fprintf(stderr, "warning: "
-			       "TDBRepPort '%s' invalid, ignoring", cc->text);
-			free(cc->text);
-			cc->text = NULL;
-			return;
-		}
-		rep_port = n;
-		free(cc->text);
-		cc->text = NULL;
-	}
 }
 
 static bool str_n_isspace(const char *s, size_t n)
@@ -197,8 +176,6 @@ static void read_config(void)
 	struct config_context ctx;
 
 	memset(&ctx, 0, sizeof(struct config_context));
-
-	rep_port = 8083;
 
 	if (!g_file_get_contents(config, &text, &len, NULL)) {
 		fprintf(stderr, "failed to read config file %s\n", config);
@@ -603,10 +580,15 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state)
 	return 0;
 }
 
+static void tdb_state_cb(enum db_event event)
+{
+	if (event == TDB_EV_MASTER)
+		tdb_is_master = true;
+}
+
 int main(int argc, char *argv[])
 {
-	char hostname[64];
-	unsigned int env_flags, db_flags;
+	unsigned int db_flags;
 	error_t aprc;
 	int rc = 1;
 
@@ -621,21 +603,12 @@ int main(int argc, char *argv[])
 	if (!tdb_dir)
 		die("no tdb dir (-t) specified\n");
 
-	if (ourhost)
-		strcpy(hostname, ourhost);
-	else if (gethostname(hostname, sizeof(hostname)) < 0) {
-		fprintf(stderr, "gethostname failed: %s\n", strerror(errno));
-		return 1;
-	}
-
-	env_flags = DB_RECOVER | DB_CREATE | DB_THREAD;
-	if (tdb_init(&tdb, tdb_dir, NULL, env_flags,
-		     "tdbadm", false, NULL, hostname, rep_port, NULL))
+	if (tdb_init(&tdb, tdb_dir, NULL, "tdbadm", false,
+		     0, NULL, true, tdb_state_cb))
 		goto err_dbinit;
 
-	/* Usually takes about 12s */
-	/* FIXME don't peek into private parts of tdb struct, use state_cb */
-	while (!tdb.is_master)
+	/* Usually takes about 12s, if vote is involved. */
+	while (!tdb_is_master)
 		sleep(2);
 
 	db_flags = DB_CREATE | DB_THREAD;

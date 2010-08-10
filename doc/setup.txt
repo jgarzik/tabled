@@ -15,7 +15,9 @@ _cld._udp.phx2.ex.com has SRV record 10 50 8081 maika.phx2.ex.com.
    Also, make sure that your hostname has a domain. We don't want to search
    for CLD in the world-wide DNS root, do we?
 
-   Make sure CLD is up (run "cldcli" to verify).
+   Once you know that CLD is running, verify that tabled can talk to
+   it by running "cldcli". UDP traffic to be allowed for port 8081 or
+   other port as specified in the SRV record.
 
 *) Another thing to set up in DNS is a wildcard host for the system where
    tabled will run. Unlike the SRV records of CLD, this is optional, but
@@ -29,6 +31,10 @@ emus3           IN      A       192.168.128.9
 
    All examples on Google say FQDN is required, and most presume aliasing
    of A and AAAA records, but BIND 9 eats the above fine.
+
+*) Speaking of FQDN, it is possible to force tabled to use a non-default
+   hostname with ForceHost tag. In practice this is only useful when
+   the DNS is broken.
 
 *) Copy configuration file from doc/etc.tabled.conf to /etc/tabled.conf
    and edit to suit (see configurable items below). Notice that the file
@@ -52,6 +58,11 @@ emus3           IN      A       192.168.128.9
 
    Group name defaults to "default", so you can leave this element unset,
    but don't do it. Any name, even "qwerty", is better than the default.
+
+*) In each group, tabled uses its hostname to identify itself. However,
+   if you ever wish to run two tabled processes that serve the same group,
+   it can be accomplished by setting TDBRepName. N.B.: A loss of power for
+   the host will knock out all of them, so never use this in production.
 
 *) Select the port to listen, if desired. This is done using the <Listen>
    element:

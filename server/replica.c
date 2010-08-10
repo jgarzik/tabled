@@ -612,8 +612,8 @@ static void rep_scan_verify(struct rep_arg *arg,
 
 static void rep_add_nid(unsigned int klen, struct db_obj_key *key, uint32_t nid)
 {
-	DB_ENV *db_env = tdb.env;
-	DB *db_objs = tdb.objs;
+	DB_ENV *db_env = tdbrep.tdb.env;
+	DB *db_objs = tdbrep.tdb.objs;
 	DB_TXN *db_txn;
 	DBT pkey, pval;
 	struct db_obj_ent *obj;
@@ -749,8 +749,8 @@ static void rep_scan(struct rep_arg *arg)
 	g_mutex_unlock(kscan_mutex);
 
 	memset(&cur, 0, sizeof(struct cursor));	/* enough to construct */
-	cur.db_env = tdb.env;
-	cur.db_objs = tdb.objs;
+	cur.db_env = tdbrep.tdb.env;
+	cur.db_objs = tdbrep.tdb.objs;
 
 	kcnt = 0;
 	for (;;) {

@@ -224,6 +224,16 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		cc->text = NULL;
 	}
 
+	else if (!strcmp(element_name, "TDBRepName")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "TDBRepName element empty");
+			return;
+		}
+		free(tabled_srv.rep_name);
+		tabled_srv.rep_name = cc->text;
+		cc->text = NULL;
+	}
+
 	else if (!strcmp(element_name, "StatusPort")) {
 		if (!cc->text) {
 			applog(LOG_WARNING, "StatusPort element empty");

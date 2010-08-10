@@ -45,6 +45,8 @@ enum {
 
 	TABLED_CHKPT_SEC	= 60 * 5,	/* secs between db4 chkpt */
 	TABLED_RESCAN_SEC	= 60*3 + 7,	/* secs btw key rescans */
+	TABLED_MCWAIT_SEC	= 35,		/* secs to moderate reconn. */
+	TABLED_REUP_SEC		= 35,		/* secs to retry rtdb_restart */
 
 	CHUNK_REBOOT_TIME	= 3*60,		/* secs to declare chunk dead */
 
@@ -200,8 +202,12 @@ struct client {
 	char			req_buf[CLI_REQ_BUF_SZ]; /* input buffer */
 };
 
+enum st_want {
+	ST_W_INIT, ST_W_MASTER, ST_W_SLAVE
+};
+
 enum st_tdb {
-	ST_TDB_INIT, ST_TDB_OPEN, ST_TDB_ACTIVE, ST_TDB_MASTER, ST_TDB_SLAVE,
+	ST_TDB_INIT, ST_TDB_OPEN, ST_TDB_MASTER, ST_TDB_SLAVE,
 	ST_TDBNUM
 };
 
@@ -216,6 +222,17 @@ struct server_stats {
 	unsigned long		opt_write;	/* optimistic writes */
 
 	unsigned long		max_write_buf;
+};
+
+#define DBID_NONE      0
+#define DBID_MIN       2
+#define DBID_MAX     105
+
+struct db_remote {		/* other DB nodes */
+	char		*name;			/* do not resolve as a host */
+	char		*host;
+	unsigned short	port;
+	int		dbid;			/* signed in db4, traditional */
 };
 
 struct listen_cfg {
@@ -233,6 +250,8 @@ struct server {
 	int			ev_pipe[2];
 	struct event		pevt;
 	struct list_head	write_compl_q;	/* list of done writes */
+	bool			mc_delay;
+	struct event		mc_timer;
 
 	char			*config;	/* config file (static) */
 
@@ -242,6 +261,7 @@ struct server {
 	char			*port_file;
 	char			*chunk_user;	/* username for stc_new */
 	char			*chunk_key;	/* key for stc_new */
+	char			*rep_name;	/* db4 replication name */
 	unsigned short		rep_port;	/* db4 replication port */
 	char			*status_port;	/* status webserver */
 	char			*group;		/* our group (both T and Ch) */
@@ -249,12 +269,16 @@ struct server {
 	char			*ourhost;	/* use this if DB master */
 	struct database		*db;		/* database handle */
 	GList			*rep_remotes;
+	struct db_remote	*rep_master;	/* if we're slave */
+	int			rep_next_id;
+	struct event		reup_timer;
 
 	GList			*sockets;
 	struct list_head	all_stor;	/* struct storage_node */
 	int			num_stor;	/* number of storage_node's  */
 	uint64_t		object_count;
 
+	enum st_want		state_want;
 	enum st_tdb		state_tdb;
 	enum st_net		state_net;
 
@@ -263,7 +287,55 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
-extern struct tabledb tdb;
+/*
+ * Low-level channel, for both sides.
+ *
+ * The combined link state confuses session (e.g. login) and the framing, which
+ * is not pretty but works. At least we have a separate link-state struct.
+ *
+ * In a settled state, db_conn corresponds 1:1 to db_remote, but
+ * it's not necesserily so when connections are being established.
+ */
+enum dbc_state {  DBC_INIT, DBC_LOGIN, DBC_OPEN, DBC_DEAD };
+
+struct db_link {
+	int		fd;
+	enum dbc_state	state;
+
+	bool		writing;
+	struct event	wrev;			/* when writing */
+	unsigned char	*obuf;
+	int		obuflen;
+	int		done, togo;
+
+	struct event	rcev;			/* whenever fd >= 0 */
+	unsigned char	*ibuf;
+	int		ibuflen;		/* currently allocated ibuf */
+	int		cnt;			/* currently in ibuf */
+	int		explen;			/* expected length */
+};
+
+struct db_conn {		/* a connection with other DB node */
+	struct tablerep	*rtdb;
+	struct db_remote *remote;
+	struct list_head link;
+
+	struct db_link	lk;
+};
+
+struct tablerep {
+	struct tabledb	tdb;
+	const char	*thisname;
+	int		thisid;
+
+	int		sockfd4, sockfd6;
+	struct event	lsev4, lsev6;
+	struct list_head conns;	// struct db_conn
+
+	struct db_conn	*mdbc;
+};
+
+extern struct tablerep tdbrep;
 
 /* bucket.c */
 extern bool has_access(const char *user, const char *bucket, const char *key,
@@ -295,7 +367,8 @@ extern void cli_in_end(struct client *cli);
 
 /* cldu.c */
 extern void cld_init(void);
-extern int cld_begin(const char *fqdn, const char *group, int verbose);
+extern int cld_begin(const char *fqdn, const char *group, const char *name,
+		int verbose);
 extern void cldu_add_host(const char *host, unsigned int port);
 extern void cld_end(void);
 
@@ -332,7 +405,13 @@ extern bool cli_write_start(struct client *cli);
 extern bool cli_write_run_compl(void);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
+extern void cld_update_cb(void);
 extern int stor_update_cb(void);
+extern int tdb_slave_login_cb(int srcid);
+extern void tdb_slave_disc_cb(void);
+extern void tdb_conn_scrub_cb(void);
+extern struct db_remote *tdb_find_remote_byname(const char *name);
+extern struct db_remote *tdb_find_remote_byid(int id);
 
 /* status.c */
 extern bool stat_evt_http_req(struct client *cli, unsigned int events);
@@ -373,5 +452,17 @@ extern void rep_init(struct event_base *ev_base);
 extern void rep_start(void);
 extern void rep_stats(void);
 extern bool rep_status(struct client *cli, GList *content);
+
+/* metarep.c */
+extern int rtdb_init(struct tablerep *rtdb, const char *thishost);
+extern int rtdb_start(struct tablerep *rtdb, const char *db_home,
+	bool we_are_master,
+	struct db_remote *rep_master, unsigned short rep_port,
+	void (*cb)(enum db_event));
+extern void rtdb_mc_reset(struct tablerep *rtdb, bool we_are_master,
+	struct db_remote *rep_master, unsigned short rep_port);
+extern void rtdb_dbc_scrub(struct tablerep *rtdb);
+extern int rtdb_restart(struct tablerep *rtdb, bool we_are_master);
+extern void rtdb_fini(struct tablerep *rtdb);
 
 #endif /* __TABLED_H__ */
