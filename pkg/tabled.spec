@@ -1,6 +1,6 @@
 Name:		tabled
 Version:	0.5.1
-Release:	0.2.g33595340%{?dist}
+Release:	1%{?dist}
 Summary:	Distributed key/value table service
 
 Group:		System Environment/Base
@@ -90,6 +90,9 @@ fi
 %config(noreplace)	%{_sysconfdir}/sysconfig/tabled
 
 %changelog
+* Wed Aug 11 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5.1-1
+- Update for release v0.5.1
+
 * Thu Jul 15 2010 Jeff Garzik <jgarzik@redhat.com> - 0.5.1-0.2.g33595340
 - BR: libxml2-devel
 

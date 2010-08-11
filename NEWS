@@ -1,4 +1,12 @@
 
+Version 0.5.1 - August 11, 2010
+
+- Major metadata replication rewrite
+- Move libhttpstor to libhail
+- Use 64k network buffers with chunkd transfers
+- Logging cleanups
+- bug fixes
+
 Version 0.5 - July 3, 2010
 
 - reduce CLD client verbosity
