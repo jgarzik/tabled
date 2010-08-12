@@ -2344,7 +2344,8 @@ err_evpipe:
 	unlink(tabled_srv.pid_file);
 	close(tabled_srv.pid_fd);
 err_out:
-	closelog();
+	if (use_syslog)
+		closelog();
 	return rc;
 }
 
