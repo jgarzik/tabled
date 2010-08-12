@@ -1240,6 +1240,13 @@ int rtdb_restart(struct tablerep *rtdb, bool we_are_master)
 void rtdb_fini(struct tablerep *rtdb)
 {
 	__rtdb_fini(rtdb);
-	tdb_fini(&rtdb->tdb);
+	/*
+	 * This check is ewwww, but unfortunately there's potentially a gap
+	 * between DB going master and us bringing up the environment.
+	 * If we condition the tdb_fini on DB status, we'll end crashing
+	 * if the server terminates during the gap.
+	 */
+	if (rtdb->tdb.env)
+		tdb_fini(&rtdb->tdb);
 }
 

@@ -2326,18 +2326,13 @@ int main (int argc, char *argv[])
 	applog(LOG_INFO, "shutting down");
 
 	rc = 0;
-
+	if (tabled_srv.state_tdb == ST_TDB_MASTER)
+		tdb_down(&tdbrep.tdb);
 	cld_end();
 err_cld_session:
 	/* net_close(); */
 err_out_net:
-	if (tabled_srv.state_tdb == ST_TDB_MASTER ||
-	    tabled_srv.state_tdb == ST_TDB_SLAVE) {
-		tdb_down(&tdbrep.tdb);
-		rtdb_fini(&tdbrep);
-	} else if (tabled_srv.state_tdb == ST_TDB_OPEN) {
-		rtdb_fini(&tdbrep);
-	}
+	rtdb_fini(&tdbrep);
 err_rtdb:
 	event_del(&tabled_srv.pevt);
 err_pevt:
