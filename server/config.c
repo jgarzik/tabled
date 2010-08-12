@@ -211,15 +211,20 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		n = strtol(cc->text, NULL, 10);
-		if (n <= 0 || n >= 65536) {
-			applog(LOG_WARNING,
-			       "TDBRepPort '%s' invalid, ignoring", cc->text);
-			free(cc->text);
-			cc->text = NULL;
-			return;
+		if (!strcmp(cc->text, "auto")) {
+			tabled_srv.rep_port = 0;
+		} else {
+			n = strtol(cc->text, NULL, 10);
+			if (n <= 0 || n >= 65536) {
+				applog(LOG_WARNING,
+				       "TDBRepPort '%s' invalid, ignoring",
+				       cc->text);
+				free(cc->text);
+				cc->text = NULL;
+				return;
+			}
+			tabled_srv.rep_port = n;
 		}
-		tabled_srv.rep_port = n;
 		free(cc->text);
 		cc->text = NULL;
 	}
@@ -432,7 +437,6 @@ void read_config(void)
 	memset(&ctx, 0, sizeof(struct config_context));
 
 	tabled_srv.port = strdup("8080");
-	tabled_srv.rep_port = 8083;
 
 	if (!g_file_get_contents(tabled_srv.config, &text, &len, NULL)) {
 		applog(LOG_ERR, "failed to read config file %s",

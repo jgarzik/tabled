@@ -370,6 +370,7 @@ extern void cld_init(void);
 extern int cld_begin(const char *fqdn, const char *group, const char *name,
 		int verbose);
 extern void cldu_add_host(const char *host, unsigned int port);
+extern void cld_post_rep_conn(const char *rep_host, unsigned int rep_port);
 extern void cld_end(void);
 
 /* util.c */

@@ -676,6 +676,7 @@ static int rtdb_rep_listen(struct tablerep *rtdb, unsigned short port)
 {
 	struct sockaddr_in addr4;
 	struct sockaddr_in6 addr6;
+	socklen_t addr_len;
 	int rc;
 
 	memset(&addr6, 0, sizeof(addr6));
@@ -694,6 +695,16 @@ static int rtdb_rep_listen(struct tablerep *rtdb, unsigned short port)
 			  tdb_conn_event, rtdb);
 		if (event_add(&rtdb->lsev6, NULL) < 0)
 			applog(LOG_ERR, "event_add failed");
+
+		if (!port) {
+			addr_len = sizeof(addr6);
+			if (getsockname(rtdb->sockfd6, &addr6, &addr_len) < 0) {
+				applog(LOG_ERR, "getsockname failed: %s",
+				       strerror(errno));
+			} else {
+				port = ntohs(addr6.sin6_port);
+			}
+		}
 	}
 
 	memset(&addr4, 0, sizeof(addr4));
@@ -712,7 +723,20 @@ static int rtdb_rep_listen(struct tablerep *rtdb, unsigned short port)
 			  tdb_conn_event, rtdb);
 		if (event_add(&rtdb->lsev4, NULL) < 0)
 			applog(LOG_ERR, "event_add failed");
+
+		if (!port) {
+			addr_len = sizeof(addr4);
+			if (getsockname(rtdb->sockfd4, &addr4, &addr_len) < 0) {
+				applog(LOG_ERR, "getsockname failed: %s",
+				       strerror(errno));
+			} else {
+				port = ntohs(addr4.sin_port);
+			}
+		}
 	}
+
+	if (port)
+		cld_post_rep_conn(tabled_srv.ourhost, port);
 
 	return 0;
 }
@@ -1053,6 +1077,11 @@ static int rtdb_rep_connect(struct db_conn *dbc)
 	return 0;
 }
 
+/*
+ * Sadly, this has to be idempotent, because it's called for cleanup
+ * in rtdb_start, and because various link resets may invoke this, then fail.
+ * So, clear all the tested flags.
+ */
 static void __rtdb_fini(struct tablerep *rtdb)
 {
 	struct db_conn *dbc;
@@ -1095,6 +1124,11 @@ static int __rtdb_start(struct tablerep *rtdb, bool we_are_master,
 	} else {
 		if (!rep_master) {
 			applog(LOG_INFO, "No master yet"); /* P3 */
+			return -1;
+		}
+		if (!rep_master->host || !rep_master->port) {
+			/* FIXME This should be retried quicker than usual. */
+			applog(LOG_INFO, "Master not up yet"); /* P3 */
 			return -1;
 		}
 		if (!rtdb->mdbc) {

@@ -67,7 +67,6 @@ struct cld_session {
 
 	char *thisname;
 	char *thisgroup;
-	char *thishost;
 	char *cfname;		/* /tabled-group directory */
 	struct ncld_fh *cfh;	/* /tabled-group directory, keep open for scan */
 	char *ffname;		/* /tabled-group/thisname */
@@ -119,23 +118,16 @@ static int cldu_nextactive(struct cld_session *sp)
  * chunkservers that it uses, so this function only takes one group argument.
  */
 static int cldu_setgroup(struct cld_session *sp,
-			 const char *thisgroup, const char *thishost,
-			 const char *thisname)
+			 const char *thisgroup, const char *thisname)
 {
 	char *mem;
 
 	if (thisgroup == NULL) {
 		thisgroup = "default";
 	}
-	if (thisname == NULL) {
-		thisname = thishost;
-	}
 
 	sp->thisgroup = strdup(thisgroup);
 	if (!sp->thisgroup)
-		goto err_oom;
-	sp->thishost = strdup(thishost);
-	if (!sp->thishost)
 		goto err_oom;
 	sp->thisname = strdup(thisname);
 	if (!sp->thisname)
@@ -256,17 +248,6 @@ static void cldu_parse_master(const char *mfname, const char *mfile, long len)
 			applog(LOG_DEBUG, "%s: No name", mfname);
 		return;
 	}
-	if (!host || !hostlen) {
-		if (debugging)
-			applog(LOG_DEBUG, "%s: No host", mfname);
-		return;
-	}
-	if (!port || !portlen) {
-		if (debugging)
-			applog(LOG_DEBUG, "%s: No port", mfname);
-		return;
-	}
-
 	if (namelen >= sizeof(namebuf)) {
 		applog(LOG_ERR, "Long master name");
 		return;
@@ -274,41 +255,75 @@ static void cldu_parse_master(const char *mfname, const char *mfile, long len)
 	memcpy(namebuf, name, namelen);
 	namebuf[namelen] = 0;
 
-	if (hostlen >= sizeof(hostbuf)) {
-		applog(LOG_ERR, "Long host");
-		return;
-	}
-	memcpy(hostbuf, host, hostlen);
-	hostbuf[hostlen] = 0;
-
-	if (portlen >= sizeof(portbuf)) {
-		applog(LOG_ERR, "Long port");
-		return;
-	}
-	memcpy(portbuf, port, portlen);
-	portbuf[portlen] = 0;
-	portnum = strtol(port, NULL, 10);
-	if (portnum <= 0 || portnum >= 65536) {
-		applog(LOG_ERR, "Bad port %s", portbuf);
-		return;
-	}
-
-	rp = tdb_find_remote_byname(namebuf);
-	if (!rp) {
+	if (!host || !hostlen) {
 		if (debugging)
-			applog(LOG_DEBUG, "%s: Not found master %s",
-			       mfname, namebuf);
-		return;
+			applog(LOG_DEBUG, "%s: No host", mfname);
+		hostlen = 0;
+	}
+	if (!port || !portlen) {
+		if (debugging)
+			applog(LOG_DEBUG, "%s: No port", mfname);
+		portlen = 0;
 	}
 
-	if (debugging)
-		applog(LOG_DEBUG, "Found master %s host %s port %u",
-		       namebuf, hostbuf, portnum);
+	if (hostlen != 0 && portlen != 0) {
 
-	rp->host = strdup(hostbuf);
-	rp->port = portnum;
-	if (!rp->host)
-		return;
+		if (hostlen >= sizeof(hostbuf)) {
+			applog(LOG_ERR, "Long host");
+			return;
+		}
+		memcpy(hostbuf, host, hostlen);
+		hostbuf[hostlen] = 0;
+
+		if (portlen >= sizeof(portbuf)) {
+			applog(LOG_ERR, "Long port");
+			return;
+		}
+		memcpy(portbuf, port, portlen);
+		portbuf[portlen] = 0;
+		portnum = strtol(port, NULL, 10);
+		if (portnum <= 0 || portnum >= 65536) {
+			applog(LOG_ERR, "Bad port %s", portbuf);
+			return;
+		}
+
+		rp = tdb_find_remote_byname(namebuf);
+		if (!rp) {
+			if (debugging)
+				applog(LOG_DEBUG, "%s: Not found master %s",
+				       mfname, namebuf);
+			return;
+		}
+		if (debugging)
+			applog(LOG_DEBUG, "Found master %s host %s port %u",
+			       namebuf, hostbuf, portnum);
+
+		free(rp->host);
+		rp->host = strdup(hostbuf);
+		rp->port = portnum;
+		if (!rp->host)
+			return;
+	} else {
+
+		rp = tdb_find_remote_byname(namebuf);
+		if (!rp) {
+			if (debugging)
+				applog(LOG_DEBUG, "%s: Not found master %s",
+				       mfname, namebuf);
+			return;
+		}
+		if (debugging)
+			applog(LOG_DEBUG, "Found master %s", namebuf);
+
+		/*
+		 * At this point some other node owns the MASTER file, but
+		 * it did not supply the host and port. There is no reason
+		 * to rely on obsolete contact information, so remove it.
+		 */
+		free(rp->host);
+		rp->host = NULL;
+		rp->port = 0;
+	}
 	tabled_srv.rep_master = rp;
 }
 
@@ -357,8 +372,6 @@ static void cldu_get_master(const char *mfname, struct ncld_fh *mfh)
  * N.B. Only call this if you know that mfh is closed or never open:
  * right after cldu_set_cldc (disposing of session closes handles),
  * or when we were slave and so should not kept mfh ...
- * FIXME this will become more interesting when we keep mfh open in slave
- * state so we can have outstanding locks for master failover notification.
  */
 static int cldu_set_master(struct cld_session *sp)
 {
@@ -391,8 +404,13 @@ static int cldu_set_master(struct cld_session *sp)
 		goto err_lock;
 	}
 
-	len = asprintf(&buf, "name: %s\nhost: %s\nport: %u\n",
-		       sp->thisname, sp->thishost, tabled_srv.rep_port);
+	/*
+	 * If "auto" is used, we do not know the replication socket host
+	 * and port at this time, so we just write the name and expect
+	 * the caller to update the MASTER file later. In case of a fixed
+	 * host and port we can write it here, but there is no point.
+	 */
+	len = asprintf(&buf, "name: %s\n", sp->thisname);
 	if (len < 0) {
 		applog(LOG_ERR, "internal error: no core");
 		goto err_wmem;
@@ -879,7 +897,7 @@ int cld_begin(const char *thishost, const char *thisgroup,
 
 	evtimer_set(&ses.tm_rescan, cldu_tm_rescan, &ses);
 
-	if (cldu_setgroup(sp, thisgroup, thishost, thisname)) {
+	if (cldu_setgroup(sp, thisgroup, thisname)) {
 		/* Already logged error */
 		goto err_group;
 	}
@@ -981,6 +999,48 @@ void cldu_add_host(const char *hostname, unsigned int port)
 	sp->forced_hosts = true;
 }
 
+void cld_post_rep_conn(const char *rep_host, unsigned int rep_port)
+{
+	static struct cld_session *sp = &ses;
+	char *buf;
+	int len;
+	int rc;
+
+	if (!sp->nsp || sp->is_dead)
+		return;
+	if (!sp->mfh) {
+		/*
+		 * We should only get here when we are a master, and since
+		 * the session is up, the MASTER handle must be present.
+		 * Report an internal error.
+		 */
+		applog(LOG_WARNING,
+		       "Unable to post connection, no MASTER file");
+		return;
+	}
+
+	len = asprintf(&buf, "name: %s\nhost: %s\nport: %u\n",
+		       sp->thisname, rep_host, rep_port);
+	if (len < 0) {
+		applog(LOG_ERR, "internal error: no core");
+		goto err_wmem;
+	}
+
+	rc = ncld_write(sp->mfh, buf, len);
+	if (rc) {
+		applog(LOG_ERR, "CLD put(%s) failed: %d", sp->mfname, rc);
+		goto err_write;
+	}
+
+	free(buf);
+	return;
+
+ err_write:
+	free(buf);
+ err_wmem:
+	return;
+}
+
 void cld_end(void)
 {
 	static struct cld_session *sp = &ses;
@@ -1012,8 +1072,6 @@ void cld_end(void)
 	sp->mfname = NULL;
 	free(sp->thisgroup);
 	sp->thisgroup = NULL;
-	free(sp->thishost);
-	sp->thishost = NULL;
 	free(sp->thisname);
 	sp->thisname = NULL;
 }
