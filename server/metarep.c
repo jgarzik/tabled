@@ -884,7 +884,7 @@ static int rtdb_master_login_reply(struct db_conn *dbc, unsigned char *msgbuf)
 	}
 	if (debugging)
 		applog(LOG_DEBUG, "Link login, slave %s dbid %d",
-		       slave->host, slave->dbid);
+		       slave->name, slave->dbid);
 
 	/*
 	 * Dispose of all existing connections. Our current implementation

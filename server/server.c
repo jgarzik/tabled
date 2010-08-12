@@ -399,7 +399,7 @@ static void stats_dump(void)
 
 	applog(LOG_INFO, "TDB: group %s state %s host %s rep_port %d dbid %d%s",
 	       tabled_srv.group, state_name_tdb[tabled_srv.state_tdb],
-	       tabled_srv.ourhost, tabled_srv.rep_port, tdbrep.thisid,
+	       tabled_srv.rep_name, tabled_srv.rep_port, tdbrep.thisid,
 	       (tabled_srv.mc_delay)? " mc_delay": "");
 	for (tmp = tabled_srv.rep_remotes; tmp; tmp = tmp->next) {
 		rp = tmp->data;
@@ -447,7 +447,7 @@ bool stat_status(struct client *cli, GList *content)
 		     "<p>TDB: group %s "
 		     "state %s host %s rep_port %d dbid %d%s</p>\r\n",
 		     tabled_srv.group, state_name_tdb[tabled_srv.state_tdb],
-		     tabled_srv.ourhost, tabled_srv.rep_port, tdbrep.thisid,
+		     tabled_srv.rep_name, tabled_srv.rep_port, tdbrep.thisid,
 		     (tabled_srv.mc_delay)? " mc_delay": "") < 0)
 		return false;
 	content = g_list_append(content, str);
@@ -1719,7 +1719,7 @@ int tdb_slave_login_cb(int srcid)
 		if (rtdb_start(&tdbrep, tabled_srv.tdb_dir,
 			       false,
 			       master,
-			       tabled_srv.rep_port, tdb_state_cb)) {
+			       0, tdb_state_cb)) {
 			tabled_srv.state_tdb = ST_TDB_INIT;
 			applog(LOG_ERR, "Failed to open TDB, limping");
 			return -1;
@@ -2248,6 +2248,8 @@ int main (int argc, char *argv[])
 	else if (debugging)
 		applog(LOG_INFO, "Forcing local hostname to %s",
 		       tabled_srv.ourhost);
+	if (!tabled_srv.rep_name)
+		tabled_srv.rep_name = tabled_srv.ourhost;
 
 	/*
 	 * background outselves, write PID file ASAP
@@ -2294,7 +2296,7 @@ int main (int argc, char *argv[])
 	}
 
 	/* late-construct structures with allocations */
-	if (rtdb_init(&tdbrep, tabled_srv.ourhost)) {
+	if (rtdb_init(&tdbrep, tabled_srv.rep_name)) {
 		applog(LOG_WARNING, "rtdb_init");
 		rc = 1;
 		goto err_rtdb;
