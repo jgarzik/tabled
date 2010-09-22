@@ -1,10 +1,14 @@
 #!/bin/sh
 
-for d in cld chunkd tabled; do
+for d in cld chunkd tabled
+do
 	if [ -f $d.pid ]
 	then
-		echo "$d.pid file found.  daemon still running?"
-		exit 1
+		if kill -0 `cat $d.pid` 2> /dev/null
+		then
+			echo "$d.pid file found.  daemon still running?" >&2
+			exit 1
+		fi
 	fi
 done
 
