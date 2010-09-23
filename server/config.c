@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2009 Red Hat, Inc.
+ * Copyright 2009, 2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -437,6 +437,10 @@ void read_config(void)
 	memset(&ctx, 0, sizeof(struct config_context));
 
 	tabled_srv.port = strdup("8080");
+	if (!tabled_srv.port) {
+		applog(LOG_ERR, "no core");
+		exit(1);
+	}
 
 	if (!g_file_get_contents(tabled_srv.config, &text, &len, NULL)) {
 		applog(LOG_ERR, "failed to read config file %s",

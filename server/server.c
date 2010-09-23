@@ -306,7 +306,8 @@ static char *pathtokey(const char *path)
 		return NULL;
 	klen = end - path;
 
-	key = malloc(klen + 1);
+	if ((key = malloc(klen + 1)) == NULL)
+		return NULL;
 	memcpy(key, path, klen);
 	key[klen] = 0;
 
@@ -362,6 +363,9 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 	} else {
 		pass = val.data;
 	}
+
+	if (!pass)
+		goto err_cmp;
 
 	hreq_sign(req, extra_bucket, pass, b64sig);
 	free(pass);
@@ -996,7 +1000,8 @@ static bool cli_evt_http_req(struct client *cli, unsigned int events)
 	if (debugging)
 		applog(LOG_INFO,
 		       "%s: method %s, path '%s', key '%s', bucket '%s'",
-		       cli->addr_host, method, path, key, bucket);
+		       cli->addr_host, method, path ? path : "<NULL>",
+		       key, bucket);
 
 	if (auth) {
 		err = authcheck(&cli->req, buck_in_path? NULL: bucket, auth,

@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -800,6 +800,11 @@ static bool object_put_body(struct client *cli, const char *user,
 	cli->out_size = content_len;
 	cli->out_objid = objid;
 	cli->out_user = strdup(user);
+
+	if (!cli->out_bucket || !cli->out_key || !cli->out_user) {
+		applog(LOG_ERR, "OOM in object_put_body");
+		return cli_err(cli, InternalError);
+	}
 
 	/* handle Expect: 100-continue header, by unconditionally
 	 * requesting that they continue.

@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2009 Red Hat, Inc.
+ * Copyright 2009-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -541,7 +541,10 @@ static int rep_scan_parse(struct cursor *cp, struct db_obj_ent *obj)
 	}
 	obj_koff = obj->n_str * sizeof(uint16_t);
 
-	okey = malloc(64 + obj_klen);
+	if (!(okey = malloc(64 + obj_klen))) {
+		applog(LOG_ERR, "rep_scan_parse: no core %d", 64+obj_klen);
+		return -1;
+	}
 
 	memcpy(okey->bucket, obj->bucket, 64);
 	memcpy(okey->key, (char *)(obj+1) + obj_koff, obj_klen);
