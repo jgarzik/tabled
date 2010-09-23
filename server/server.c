@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1613,7 +1613,7 @@ void cld_update_cb(void)
  * server, the management of nodes is not in storage.c, which deals
  * with the interface to Chunk and little more.
  *
- * We don't even bother with registering this callback, just call it by name. 
+ * We don't even bother with registering this callback, just call it by name.
  *
  * The return value is used to re-arm storage rescan mechanism.
  */
@@ -1847,9 +1847,12 @@ static int net_write_port(const char *port_file,
 		       port_file, strerror(rc));
 		return -rc;
 	}
-	fprintf(portf, "%s:%s\n", tabled_srv.ourhost, port);
-	fclose(portf);
-	return 0;
+	if (fprintf(portf, "%s:%s\n", tabled_srv.ourhost, port) < 0) {
+		rc = errno;
+		fclose(portf);
+		return -rc;
+	}
+	return fclose(portf) ? -errno : 0;
 }
 
 /*
@@ -1959,7 +1962,7 @@ static int net_open_known(const char *portstr, bool is_status)
 			continue;
 
 		rc = net_open_socket(res->ai_family, res->ai_socktype,
-				     res->ai_protocol, 
+				     res->ai_protocol,
 				     res->ai_addrlen, res->ai_addr, is_status);
 		if (rc < 0)
 			goto err_out;
@@ -2348,4 +2351,3 @@ err_out:
 		closelog();
 	return rc;
 }
-
