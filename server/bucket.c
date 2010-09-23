@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -788,29 +788,36 @@ static GList *bucket_list_pfx(GList *content, GHashTable *common_pfx,
 	s = malloc(cpfx_len);
 	p = s;
 
+#define append_const(buf, c) \
+  do { memcpy(buf, c, sizeof(c)-1); (buf) += sizeof(c)-1; } while (0)
+
 	tmpl = pfx_list;
 	while (tmpl) {
 		prefix = (char *) tmpl->data;
 		pfx_len = strlen(prefix);
 
-		memcpy(p, optag, sizeof(optag)-1);  p += sizeof(optag)-1;
-		memcpy(p, pfoptag, sizeof(pfoptag)-1);  p += sizeof(pfoptag)-1;
-		memcpy(p, prefix, pfx_len);  p += pfx_len;
-		memcpy(p, delim, delim_len);  p += delim_len;
-		memcpy(p, pfedtag, sizeof(pfedtag)-1);  p += sizeof(pfedtag)-1;
-		memcpy(p, edtag, sizeof(edtag)-1);  p += sizeof(edtag)-1;
+		if (p) {
+			append_const(p, optag);
+			append_const(p, pfoptag);
+			memcpy(p, prefix, pfx_len);  p += pfx_len;
+			memcpy(p, delim, delim_len);  p += delim_len;
+			append_const(p, pfedtag);
+			append_const(p, edtag);
+		}
 
 		free(prefix);
 
 		tmpl = tmpl->next;
 	}
-	*p = 0;
+	if (p)
+		*p = 0;
 
 	free(delim);
 	g_list_free(pfx_list);
 
-	return g_list_append(content, s);
+	return s ? g_list_append(content, s) : content;
 }
+#undef append_const
 
 struct bucket_list_info {
 	char *prefix;
