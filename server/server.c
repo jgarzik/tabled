@@ -356,7 +356,7 @@ static int authcheck(struct http_req *req, char *extra_bucket,
 		if (rc != DB_NOTFOUND) {
 			char s[64];
 
-			snprintf(s, 64, "get user '%s'", user);
+			snprintf(s, sizeof(s), "get user '%s'", user);
 			tdbrep.tdb.passwd->err(tdbrep.tdb.passwd, rc, s);
 		}
 	} else {
