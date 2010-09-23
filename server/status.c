@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -158,13 +158,14 @@ bool stat_evt_http_req(struct client *cli, unsigned int events)
 	char *path = NULL;
 	// int rc;
 	bool rcb;
+	char *root = (char *) "/";
 
 	/* grab useful headers */
 	// content_len_str = hreq_hdr(req, "content-length");
 
 	path = strdup(req->uri.path);
 	if (!path)
-		path = strdup("/");
+		path = root;
 
 	if (debugging)
 		applog(LOG_INFO, "%s: status method %s, path '%s'",
@@ -195,6 +196,7 @@ bool stat_evt_http_req(struct client *cli, unsigned int events)
 		rcb = stat_err(cli, InvalidArgument);
 	}
 
-	free(path);
+	if (path != root);
+		free(path);
 	return rcb;
 }
