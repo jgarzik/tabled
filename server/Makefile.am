@@ -4,7 +4,6 @@ INCLUDES	= -I$(top_srcdir)/include @GLIB_CFLAGS@ @HAIL_CFLAGS@
 sbin_PROGRAMS	= tabled tdbadm
 
 tabled_SOURCES	= tabled.h		\
-		  atcp.c atcp.h		\
 		  bucket.c cldu.c config.c metarep.c object.c replica.c \
 		  server.c status.c storage.c storparse.c util.c
 tabled_LDADD	= ../lib/libtdb.a		\
