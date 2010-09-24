@@ -227,13 +227,13 @@ bool object_del(struct client *cli, const char *user,
 		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out:
 	rc = txn->abort(txn);
@@ -525,13 +525,13 @@ static bool object_put_end(struct client *cli)
 		return cli_err(cli, InternalError);
 	}
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out_rb:
 	rc = txn->abort(txn);
@@ -618,7 +618,8 @@ static int object_put_buf(struct client *cli, struct open_chunk *ochunk,
 	return 0;
 }
 
-bool cli_evt_http_data_in(struct client *cli, unsigned int events)
+bool cli_evt_http_data_in(struct client *cli, unsigned int events,
+			  bool *invalidate_cli)
 {
 	ssize_t avail;
 	struct open_chunk *ochunk;
@@ -812,8 +813,8 @@ static bool object_put_body(struct client *cli, const char *user,
 			cli_out_end(cli);
 			return cli_err(cli, InternalError);
 		}
-		cli_writeq(cli, cont, strlen(cont), cli_cb_free, cont);
-		cli_write_start(cli);
+		atcp_writeq(&cli->wst, cont, strlen(cont), atcp_cb_free, cont);
+		atcp_write_start(&cli->wst);
 	}
 
 	avail = MIN(cli_req_avail(cli), content_len);
@@ -940,13 +941,13 @@ static bool object_put_acls(struct client *cli, const char *user,
 		return cli_err(cli, InternalError);
 	}
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out_rb:
 	rc = txn->abort(txn);
@@ -990,10 +991,10 @@ void cli_in_end(struct client *cli)
 	cli->in_len = 0;
 }
 
-static bool object_get_more(struct client *cli, void *cb_data, bool done);
+static bool object_get_more(struct atcp_wr_state *wst, void *cb_data, bool done);
 
 /*
- * Return true iff cli_writeq was called. This is compatible with the
+ * Return true iff atcp_writeq was called. This is compatible with the
  * convention for cli continuation callbacks, so object_get_more can call us.
  */
 static bool object_get_poke(struct client *cli)
@@ -1026,7 +1027,7 @@ static bool object_get_poke(struct client *cli)
 	if (bytes == 0) {
 		if (!cli->in_len) {
 			cli_in_end(cli);
-			cli_write_start(cli);
+			atcp_write_start(&cli->wst);
 		}
 		free(buf);
 		return false;
@@ -1034,15 +1035,15 @@ static bool object_get_poke(struct client *cli)
 
 	cli->in_len -= bytes;
 	if (!cli->in_len) {
-		if (cli_writeq(cli, buf, bytes, cli_cb_free, buf))
+		if (atcp_writeq(&cli->wst, buf, bytes, atcp_cb_free, buf))
 			goto err_out;
 		cli_in_end(cli);
-		cli_write_start(cli);
+		atcp_write_start(&cli->wst);
 	} else {
-		if (cli_writeq(cli, buf, bytes, object_get_more, buf))
+		if (atcp_writeq(&cli->wst, buf, bytes, object_get_more, buf))
 			goto err_out;
-		if (cli_wqueued(cli) >= CLI_DATA_BUF_SZ)
-			cli_write_start(cli);
+		if (atcp_wqueued(&cli->wst) >= CLI_DATA_BUF_SZ)
+			atcp_write_start(&cli->wst);
 	}
 	return true;
 
@@ -1053,8 +1054,9 @@ err_out:
 }
 
 /* callback from the client side: a queued write is being disposed */
-static bool object_get_more(struct client *cli, void *cb_data, bool done)
+static bool object_get_more(struct atcp_wr_state *wst, void *cb_data, bool done)
 {
+	struct client *cli = wst->priv;
 
 	/* free now-written buffer */
 	free(cb_data);
@@ -1071,8 +1073,10 @@ static bool object_get_more(struct client *cli, void *cb_data, bool done)
 /* callback from the chunkd side: some data is available */
 static void object_get_event(struct open_chunk *ochunk)
 {
-	object_get_poke(ochunk->cli);
-	cli_write_run_compl();
+	struct client *cli = ochunk->cli;
+
+	object_get_poke(cli);
+	atcp_write_run_compl(&cli->wst);
 }
 
 static int object_node_count_up(struct db_obj_ent *obj)
@@ -1327,7 +1331,7 @@ static bool object_get_body(struct client *cli, const char *user,
 	if (!want_body) {
 		cli_in_end(cli);
 
-		rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+		rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 		if (rc) {
 			free(hdr);
 			return true;
@@ -1347,7 +1351,7 @@ static bool object_get_body(struct client *cli, const char *user,
 		if (!cli->in_len)
 			cli_in_end(cli);
 
-		rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+		rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 		if (rc) {
 			free(hdr);
 			goto err_out_in_end;
@@ -1365,21 +1369,21 @@ static bool object_get_body(struct client *cli, const char *user,
 		goto err_out_in_end;
 	memcpy(tmp, buf, bytes);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		free(tmp);
 		return true;
 	}
 
-	if (cli_writeq(cli, tmp, bytes,
-		       cli->in_len ? object_get_more : cli_cb_free, tmp))
+	if (atcp_writeq(&cli->wst, tmp, bytes,
+		       cli->in_len ? object_get_more : atcp_cb_free, tmp))
 		goto err_out_in_end;
 
 start_write:
 	free(obj);
 	g_string_free(extra_hdr, TRUE);
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out_in_end:
 	cli_in_end(cli);

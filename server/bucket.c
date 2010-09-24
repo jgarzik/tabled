@@ -566,13 +566,13 @@ bool bucket_add(struct client *cli, const char *user, const char *bucket)
 		     bucket) < 0)
 		return cli_err(cli, InternalError);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out:
 	rc = txn->abort(txn);
@@ -718,13 +718,13 @@ bool bucket_del(struct client *cli, const char *user, const char *bucket)
 		     hutil_time2str(timestr, sizeof(timestr), time(NULL))) < 0)
 		return cli_err(cli, InternalError);
 
-	rc = cli_writeq(cli, hdr, strlen(hdr), cli_cb_free, hdr);
+	rc = atcp_writeq(&cli->wst, hdr, strlen(hdr), atcp_cb_free, hdr);
 	if (rc) {
 		free(hdr);
 		return true;
 	}
 
-	return cli_write_start(cli);
+	return atcp_write_start(&cli->wst);
 
 err_out:
 	rc = txn->abort(txn);

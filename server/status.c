@@ -150,7 +150,8 @@ out_err:
 	return cli_err(cli, InternalError);
 }
 
-bool stat_evt_http_req(struct client *cli, unsigned int events)
+bool stat_evt_http_req(struct client *cli, unsigned int events,
+			bool *invalidate_cli)
 {
 	struct http_req *req = &cli->req;
 	char *method = req->method;
