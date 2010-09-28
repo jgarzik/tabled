@@ -10,4 +10,5 @@ large-object
 wait-for-listen
 hdr-content-type
 hdr-meta
+list-keys
 
