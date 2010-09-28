@@ -26,11 +26,12 @@ TESTS =				\
 	large-object		\
 	hdr-content-type	\
 	hdr-meta		\
+	list-keys		\
 	stop-daemon		\
 	clean-db
 
 check_PROGRAMS		= basic-bucket basic-object it-works large-object \
-			  hdr-content-type hdr-meta wait-for-listen
+			  hdr-content-type hdr-meta list-keys wait-for-listen
 
 noinst_LIBRARIES	= libtest.a
 
@@ -43,6 +44,7 @@ large_object_LDADD	= $(TESTLDADD)
 hdr_content_type_LDADD	= $(TESTLDADD)
 hdr_meta_LDADD		= $(TESTLDADD)
 it_works_LDADD		= $(TESTLDADD)
+list_keys_LDADD		= $(TESTLDADD)
 
 wait_for_listen_LDADD	= libtest.a
 
