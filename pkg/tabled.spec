@@ -83,7 +83,7 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt
+%doc AUTHORS COPYING LICENSE README NEWS doc/*.txt doc/etc.tabled.conf
 %{_sbindir}/tabled
 %{_sbindir}/tdbadm
 %attr(0755,root,root)	%{_initddir}/tabled
