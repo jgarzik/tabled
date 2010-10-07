@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2008-2009 Red Hat, Inc.
+ * Copyright 2008-2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -60,7 +60,7 @@ static char key[] = "Key of Large Object";
 
 #define CSUM_INIT  0xFFFFFFFF
 
-static void incrsum(unsigned int *psum, unsigned char *data, size_t len)
+static void incrsum(unsigned int *psum, const unsigned char *data, size_t len)
 {
 	unsigned int sum;
 
@@ -108,7 +108,7 @@ static size_t put_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
 	return rem;
 }
 
-static size_t get_one(struct get_ctx *ctx, unsigned char *data, size_t len)
+static size_t get_one(struct get_ctx *ctx, const unsigned char *data, size_t len)
 {
 	unsigned num;
 	size_t rem;
@@ -143,7 +143,8 @@ static size_t get_one(struct get_ctx *ctx, unsigned char *data, size_t len)
 	return rem;
 }
 
-static size_t get_cb(void *ptr, size_t membsize, size_t nmemb, void *user_data)
+static size_t get_cb(const void *ptr, size_t membsize, size_t nmemb,
+		     void *user_data)
 {
 	struct get_ctx *ctx = user_data;
 	size_t togo, len;
