@@ -1,4 +1,11 @@
 
+Version 0.5.2 - October 22, 2010
+
+- Permit randomly allocated TCP port, for db4 replication master
+- Install etc.tabled.conf as a useful example configuration
+- minor testsuite additions
+- many minor bug fixes
+
 Version 0.5.1 - August 11, 2010
 
 - Major metadata replication rewrite
