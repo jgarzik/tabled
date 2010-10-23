@@ -31,6 +31,7 @@
 #include <elist.h>
 #include <tdb.h>
 #include <hail_log.h>
+#include <anet.h>
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -102,20 +103,8 @@ struct storage_node {
 	int ref;		/* number of open_chunk or other */
 };
 
-typedef bool (*cli_evt_func)(struct client *, unsigned int);
-typedef bool (*cli_write_func)(struct client *, void *, bool);
-
-struct client_write {
-	const void		*buf;		/* write buffer pointer */
-	int			togo;		/* write buffer remainder */
-
-	int			length;		/* length for accounting */
-	cli_write_func		cb;		/* callback */
-	void			*cb_data;	/* data passed to cb */
-	struct client		*cb_cli;	/* cli passed to cb */
-
-	struct list_head	node;
-};
+typedef bool (*cli_evt_func)(struct client *, unsigned int,
+			     bool *invalidate_cli);
 
 /* an open chunkd client */
 struct open_chunk {
@@ -165,11 +154,8 @@ struct client {
 	struct event		ev;
 	struct event		write_ev;
 
-	struct list_head	write_q;	/* list of async writes */
-	size_t			write_cnt;	/* water level */
-	bool			writing;
+	struct atcp_wr_state	wst;
 	/* some debugging stats */
-	size_t			write_cnt_max;
 
 	unsigned int		req_used;	/* amount of req_buf in use */
 	char			*req_ptr;	/* start of unexamined data */
@@ -216,12 +202,12 @@ enum st_net {
 };
 
 struct server_stats {
-	unsigned long		poll;		/* number polls */
-	unsigned long		event;		/* events dispatched */
-	unsigned long		tcp_accept;	/* TCP accepted cxns */
-	unsigned long		opt_write;	/* optimistic writes */
+	uint64_t		poll;		/* number polls */
+	uint64_t		event;		/* events dispatched */
+	uint64_t		tcp_accept;	/* TCP accepted cxns */
+	uint64_t		opt_write;	/* optimistic writes */
 
-	unsigned long		max_write_buf;
+	uint64_t		max_write_buf;
 };
 
 #define DBID_NONE      0
@@ -249,7 +235,6 @@ struct server {
 	struct event_base	*evbase_main;
 	int			ev_pipe[2];
 	struct event		pevt;
-	struct list_head	write_compl_q;	/* list of done writes */
 	bool			mc_delay;
 	struct event		mc_timer;
 
@@ -361,7 +346,8 @@ extern bool object_put(struct client *cli, const char *user, const char *bucket,
 		const char *key, long content_len, bool expect_cont);
 extern bool object_get(struct client *cli, const char *user, const char *bucket,
                        const char *key, bool want_body);
-extern bool cli_evt_http_data_in(struct client *cli, unsigned int events);
+extern bool cli_evt_http_data_in(struct client *cli, unsigned int events,
+				bool *invalidate_cli);
 extern void cli_out_end(struct client *cli);
 extern void cli_in_end(struct client *cli);
 
@@ -398,12 +384,6 @@ extern bool cli_err(struct client *cli, enum errcode code);
 extern bool cli_err_write(struct client *cli, char *hdr, char *content);
 extern bool cli_resp_xml(struct client *cli, int http_status, GList *content);
 extern bool cli_resp_html(struct client *cli, int http_status, GList *content);
-extern int cli_writeq(struct client *cli, const void *buf, unsigned int buflen,
-		     cli_write_func cb, void *cb_data);
-extern size_t cli_wqueued(struct client *cli);
-extern bool cli_cb_free(struct client *cli, void *cb_data, bool done);
-extern bool cli_write_start(struct client *cli);
-extern bool cli_write_run_compl(void);
 extern int cli_req_avail(struct client *cli);
 extern void applog(int prio, const char *fmt, ...);
 extern void cld_update_cb(void);
@@ -415,7 +395,8 @@ extern struct db_remote *tdb_find_remote_byname(const char *name);
 extern struct db_remote *tdb_find_remote_byid(int id);
 
 /* status.c */
-extern bool stat_evt_http_req(struct client *cli, unsigned int events);
+extern bool stat_evt_http_req(struct client *cli, unsigned int events,
+				bool *invalidate_cli);
 
 /* config.c */
 extern void read_config(void);
