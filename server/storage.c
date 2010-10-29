@@ -90,7 +90,7 @@ static void stor_read_event(int fd, short events, void *userdata)
 {
 	struct open_chunk *cep = userdata;
 
-	cep->r_armed = 0;		/* no EV_PERSIST */
+	cep->r_armed = false;		/* no EV_PERSIST */
 	if (cep->rcb)
 		(*cep->rcb)(cep);
 }
@@ -99,7 +99,7 @@ static void stor_write_event(int fd, short events, void *userdata)
 {
 	struct open_chunk *cep = userdata;
 
-	cep->w_armed = 0;		/* no EV_PERSIST */
+	cep->w_armed = false;		/* no EV_PERSIST */
 	if (cep->wcb)
 		(*cep->wcb)(cep);
 }
@@ -211,7 +211,7 @@ void stor_close(struct open_chunk *cep)
 
 	if (cep->r_armed) {
 		event_del(&cep->revt);
-		cep->r_armed = 0;
+		cep->r_armed = false;
 	}
 	cep->rsize = 0;
 
@@ -262,7 +262,7 @@ void stor_abort(struct open_chunk *cep)
 
 	if (cep->r_armed) {
 		event_del(&cep->revt);
-		cep->r_armed = 0;
+		cep->r_armed = false;
 	}
 	cep->rsize = 0;
 
@@ -340,9 +340,9 @@ ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t req_len)
 	}
 
 	if (xfer_len != ret && cep->rsize && !cep->r_armed) {
-		cep->r_armed = 1;
+		cep->r_armed = true;
 		if (event_add(&cep->revt, NULL))
-			cep->r_armed = 0;
+			cep->r_armed = false;
 	}
 
 	return ret;
