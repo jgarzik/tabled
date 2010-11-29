@@ -46,6 +46,7 @@
 #include <openssl/md5.h>
 #include <openssl/hmac.h>
 #include <openssl/ssl.h>
+#include <curl/curl.h>
 #include <elist.h>
 #include <chunkc.h>
 #include <cldc.h>
@@ -1245,6 +1246,8 @@ static struct client *cli_alloc(bool is_status)
 		applog(LOG_ERR, "out of memory");
 		return NULL;
 	}
+	INIT_LIST_HEAD(&cli->in_ce.evt_list);
+	INIT_LIST_HEAD(&cli->in_ce.buf_list);
 
 	atcp_wr_init(&cli->wst, &libevent_wr_ops, &cli->write_ev, cli);
 
@@ -2078,6 +2081,11 @@ int main (int argc, char *argv[])
 
 	SSL_library_init();
 	SSL_load_error_strings();
+
+	if (curl_global_init(CURL_GLOBAL_ALL)) {
+		fprintf(stderr, "curl_global_init failed\n");
+		return 1;
+	}
 
 	stc_init();
 

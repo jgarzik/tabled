@@ -134,6 +134,9 @@ struct storage_node {
 	unsigned		alen;
 	struct sockaddr_in6	addr;
 	char			*hostname;
+	/* swift is basically chunk-like, with this temporary addition XXX */
+	char			*auth_token;
+	char			*auth_url;
 
 	/* file */
 	char			*basepath;
@@ -141,6 +144,21 @@ struct storage_node {
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int,
 			     bool *invalidate_cli);
+
+struct open_event {
+	struct list_head	link;
+	struct open_chunk	*chunk;
+	int			fd;
+	unsigned int		mask;
+	bool			armed;
+	struct event		evt;
+};
+
+struct open_buf {
+	struct list_head	link;
+	unsigned char		*buf;
+	size_t			length, done;
+};
 
 /* an open chunkd client */
 struct open_chunk {
@@ -174,6 +192,15 @@ struct open_chunk {
 	 * several fds and then what? It's an implementation detail.
 	 */
 	int			pfd;
+
+	/* swift */
+	struct list_head	evt_list;	/* struct open_event */
+	struct list_head	buf_list;	/* struct open_buf */
+	long			timeout;
+	struct event		timer;
+	CURLM			*cmh;
+	CURL			*c1h;
+	bool			do_multi;
 };
 
 /* internal client socket state */
@@ -528,6 +555,9 @@ extern struct st_node_ops stor_ops_chunk;
 
 /* stor_fs.c */
 extern struct st_node_ops stor_ops_posix;
+
+/* stor_swift.c */
+extern struct st_node_ops stor_ops_swift;
 
 /* replica.c */
 extern void rep_init(struct event_base *ev_base);

@@ -166,7 +166,8 @@ static int stor_add_node_this(struct storage_node *sn,
 		sn->ops = &stor_ops_posix;
 		return stor_add_node_base(sn, base);
 	case STT_SWIFT:
-		return -1;
+		sn->ops = &stor_ops_swift;
+		return stor_add_node_addr(sn, hostname, portstr);
 	default:
 		sn->ops = &stor_ops_chunk;
 		return stor_add_node_addr(sn, hostname, portstr);

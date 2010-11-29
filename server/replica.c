@@ -90,6 +90,10 @@ static struct rep_job *job_alloc(size_t klen, struct db_obj_key *key)
 	job = malloc(len);
 	if (job) {
 		memset(job, 0, sizeof(struct rep_job));
+		INIT_LIST_HEAD(&job->in_ce.evt_list);
+		INIT_LIST_HEAD(&job->in_ce.buf_list);
+		INIT_LIST_HEAD(&job->out_ce.evt_list);
+		INIT_LIST_HEAD(&job->out_ce.buf_list);
 		memcpy(job+1, key, klen);
 		job->klen = klen;
 		job->key = (struct db_obj_key *)(job+1);

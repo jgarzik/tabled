@@ -700,6 +700,8 @@ static struct open_chunk *open_chunk1(struct storage_node *stnode,
 		applog(LOG_ERR, "OOM");
 		goto err_alloc;
 	}
+	INIT_LIST_HEAD(&ochunk->evt_list);
+	INIT_LIST_HEAD(&ochunk->buf_list);
 
 	rc = stor_open(ochunk, stnode, tabled_srv.evbase_main);
 	if (rc != 0) {

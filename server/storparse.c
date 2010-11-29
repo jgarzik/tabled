@@ -452,7 +452,12 @@ void stor_parse(char *fname, const char *text, size_t len)
 		stor_add_node(ctx.nid, STT_POSIX, ctx.stor_base,
 			      NULL, NULL, &ctx.loc);
 		break;
-	case CFG_TYPE_SWIFT:
+	case CFG_TYPE_SWIFT:	/* same as chunk for now */
+		if (!stor_verify_chunk(fname, &ctx))
+			goto out_free_all;
+		stor_add_node(ctx.nid, STT_SWIFT, NULL,
+			      ctx.stor_ok_host, ctx.stor_ok_port, &ctx.loc);
+		break;
 	case CFG_TYPE_UNKNOWN:
 		if (debugging)
 			applog(LOG_DEBUG, "%s: Unknown storage type", fname);
