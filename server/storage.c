@@ -161,9 +161,6 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	return 0;
 }
 
-/*
- * It should be ok to return
- */
 int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 		   uint64_t key, uint64_t *psize)
 {
@@ -379,6 +376,9 @@ int stor_obj_del(struct storage_node *stn, uint64_t key)
 	return rc;
 }
 
+/*
+ * XXX WTF?! This accidentially tests a node instead of object! FIXME
+ */
 bool stor_obj_test(struct open_chunk *cep, uint64_t key)
 {
 	struct st_keylist *klist;
