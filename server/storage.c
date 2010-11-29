@@ -50,6 +50,24 @@ void stor_node_put(struct storage_node *sn)
 	--sn->ref;
 }
 
+void stor_read_event(int fd, short events, void *userdata)
+{
+	struct open_chunk *cep = userdata;
+
+	cep->r_armed = false;		/* no EV_PERSIST */
+	if (cep->ocb)
+		(*cep->ocb)(cep);
+}
+
+void stor_write_event(int fd, short events, void *userdata)
+{
+	struct open_chunk *cep = userdata;
+
+	cep->w_armed = false;		/* no EV_PERSIST */
+	if (cep->ocb)
+		(*cep->ocb)(cep);
+}
+
 static struct storage_node *_stor_node_by_nid(uint32_t nid)
 {
 	struct storage_node *sn;
@@ -79,6 +97,16 @@ static int stor_add_node_addr(struct storage_node *sn,
 	struct addrinfo hints;
 	struct addrinfo *res, *res0;
 	int rc;
+
+	if (sn->hostname == NULL || strcmp(sn->hostname, hostname) != 0) {
+		free(sn->hostname);
+		sn->hostname = strdup(hostname);
+		if (!sn->hostname) {
+			applog(LOG_WARNING, "No core");
+			return -1;
+		}
+		sn->reported = false;
+	}
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = PF_UNSPEC;
@@ -114,7 +142,39 @@ static int stor_add_node_addr(struct storage_node *sn,
 	return -1;
 }
 
-void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
+static int stor_add_node_base(struct storage_node *sn, const char *base)
+{
+	if (sn->basepath == NULL || strcmp(sn->basepath, base) != 0) {
+		free(sn->basepath);
+		sn->basepath = strdup(base);
+		if (!sn->basepath) {
+			applog(LOG_WARNING, "No core");
+			return -1;
+		}
+		sn->reported = false;
+	}
+	return 0;
+}
+
+static int stor_add_node_this(struct storage_node *sn,
+			      enum storage_type type, const char *base,
+			      const char *hostname, const char *portstr)
+{
+	sn->type = type;
+	switch (type) {
+	case STT_POSIX:
+		sn->ops = &stor_ops_posix;
+		return stor_add_node_base(sn, base);
+	case STT_SWIFT:
+		return -1;
+	default:
+		sn->ops = &stor_ops_chunk;
+		return stor_add_node_addr(sn, hostname, portstr);
+	}
+}
+
+void stor_add_node(uint32_t nid, enum storage_type type, const char *base,
+		   const char *hostname, const char *portstr,
 		   struct geo *locp)
 {
 	struct storage_node *sn;
@@ -122,7 +182,7 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 	g_mutex_lock(tabled_srv.bigmutex);
 	sn = _stor_node_by_nid(nid);
 	if (sn) {
-		stor_add_node_addr(sn, hostname, portstr);
+		stor_add_node_this(sn, type, base, hostname, portstr);
 	} else {
 		if ((sn = malloc(sizeof(struct storage_node))) == NULL) {
 			applog(LOG_WARNING, "No core (%ld)",
@@ -132,17 +192,10 @@ void stor_add_node(uint32_t nid, const char *hostname, const char *portstr,
 		}
 		memset(sn, 0, sizeof(struct storage_node));
 		sn->id = nid;
-		sn->ops = &stor_ops_chunk;
 
-		if ((sn->hostname = strdup(hostname)) == NULL) {
-			applog(LOG_WARNING, "No core");
-			free(sn);
-			g_mutex_unlock(tabled_srv.bigmutex);
-			return;
-		}
-
-		if (stor_add_node_addr(sn, hostname, portstr)) {
+		if (stor_add_node_this(sn, type, base, hostname, portstr)) {
 			free(sn->hostname);
+			free(sn->basepath);
 			free(sn);
 			g_mutex_unlock(tabled_srv.bigmutex);
 			return;
@@ -165,16 +218,37 @@ void stor_stats()
 	now = time(NULL);
 	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
 		if (sn->last_up) {
-			applog(LOG_INFO,
-			       "SN: nid %u %s ref %d name %s last %lu (+ %ld)",
-			       sn->id, sn->up? "up": "down",
-			       sn->ref, sn->hostname,
-			       (long) sn->last_up, (long) (now - sn->last_up));
+			switch (sn->type) {
+			case STT_POSIX:
+				applog(LOG_INFO, "SN: nid %u %s ref %d"
+				       " path %s last %lu (+ %ld)",
+				       sn->id, sn->up? "up": "down",
+				       sn->ref, sn->basepath,
+				       (long) sn->last_up,
+				       (long) (now - sn->last_up));
+				break;
+			default:
+				applog(LOG_INFO, "SN: nid %u %s ref %d"
+				       " name %s last %lu (+ %ld)",
+				       sn->id, sn->up? "up": "down",
+				       sn->ref, sn->hostname,
+				       (long) sn->last_up,
+				       (long) (now - sn->last_up));
+			}
 		} else {
-			applog(LOG_INFO,
-			       "SN: nid %u %s ref %d name %s",
-			       sn->id, sn->up? "up": "down",
-			       sn->ref, sn->hostname);
+			switch (sn->type) {
+			case STT_POSIX:
+				applog(LOG_INFO,
+				       "SN: nid %u %s ref %d path %s",
+				       sn->id, sn->up? "up": "down",
+				       sn->ref, sn->basepath);
+				break;
+			default:
+				applog(LOG_INFO,
+				       "SN: nid %u %s ref %d name %s",
+				       sn->id, sn->up? "up": "down",
+				       sn->ref, sn->hostname);
+			}
 		}
 	}
 	g_mutex_unlock(tabled_srv.bigmutex);
@@ -193,18 +267,39 @@ bool stor_status(struct client *cli, GList *content)
 	now = time(NULL);
 	list_for_each_entry(sn, &tabled_srv.all_stor, all_link) {
 		if (sn->last_up) {
-			rc = asprintf(&str,
-				     "SN: nid %u %s ref %d name %s"
-				     " last %lu (+ %ld)<br />\r\n",
-				     sn->id, sn->up? "up": tag_down,
-				     sn->ref, sn->hostname,
-				     (long) sn->last_up,
-				     (long) (now - sn->last_up));
+			switch (sn->type) {
+			case STT_POSIX:
+				rc = asprintf(&str,
+					      "SN: nid %u %s ref %d path %s"
+					      " last %lu (+ %ld)<br />\r\n",
+					      sn->id, sn->up? "up": tag_down,
+					      sn->ref, sn->basepath,
+					      (long) sn->last_up,
+					      (long) (now - sn->last_up));
+				break;
+			default:
+				rc = asprintf(&str,
+					      "SN: nid %u %s ref %d name %s"
+					      " last %lu (+ %ld)<br />\r\n",
+					      sn->id, sn->up? "up": tag_down,
+					      sn->ref, sn->hostname,
+					      (long) sn->last_up,
+					      (long) (now - sn->last_up));
+			}
 		} else {
-			rc = asprintf(&str,
-				     "SN: nid %u %s ref %d name %s<br />\r\n",
-				     sn->id, sn->up? "up": tag_down,
-				     sn->ref, sn->hostname);
+			switch (sn->type) {
+			case STT_POSIX:
+				rc = asprintf(&str, "SN: nid %u %s ref %d"
+					      "path %s<br />\r\n",
+					      sn->id, sn->up? "up": tag_down,
+					      sn->ref, sn->basepath);
+				break;
+			default:
+				rc = asprintf(&str, "SN: nid %u %s ref %d"
+					      "name %s<br />\r\n",
+					      sn->id, sn->up? "up": tag_down,
+					      sn->ref, sn->hostname);
+			}
 		}
 		if (rc < 0)
 			break;

@@ -1,0 +1,74 @@
+#!/bin/sh
+#
+# We stop tabled because it makes it easier to know what went wrong.
+# We could just swap the back-end on the fly, but then replication
+# confuses matters.
+#
+
+killpid () {
+	pidfile=$1
+	kill $(cat $pidfile)
+
+	for n in 0 1 2 3 4 5 6 7 8 9
+	do
+		if [ ! -f $pidfile ]
+		then
+			return 0
+		fi
+
+		sleep 1
+	done
+
+	echo "PID file $pidfile not removed, after signal sent." >&2
+	rm -f $pidfile
+	return 1
+}
+
+#
+# Step 1. Kill tabled and chunkd.
+#
+rm -f tabled.acc
+if [ ! -f tabled.pid ]
+then
+	# Just a warning. Previous test somehow made the daemon to die.
+	echo "No tabled PID file found." >&2
+else
+	killpid tabled.pid || exit 1
+fi
+
+if [ ! -f chunkd.pid ]
+then
+	echo "No chunkd PID file found." >&2
+else
+	killpid chunkd.pid || exit 1
+fi
+
+#
+# Step 2. Swap chunk back-end for fs.
+# We remove the chunk's <InfoPath> just to be neat.
+#
+if [ \! -s cld.port ]; then
+	echo "cld.port is not available" >&2
+	exit 1
+fi
+echo + "cldcli -h localhost:"`cat cld.port`
+cldcli -h localhost:`cat cld.port` <<EOF
+rm /chunk-default/19690720
+cpin $top_srcdir/test/be_fs-test.conf /chunk-default/256
+EOF
+
+#
+# Step 3. Restart tabled.
+#
+../server/tabled -C $top_srcdir/test/tabled-test.conf -E
+./wait-for-listen || exit 1
+
+#
+# Step 4. Run some of the tests that framework has done before.
+#
+./basic-object || exit 1
+echo "PASS redux: basic-object"
+./large-object || exit 1
+echo "PASS redux: large-object"
+
+exit 0

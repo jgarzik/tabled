@@ -1,6 +1,6 @@
 
 /*
- * Copyright 2009 Red Hat, Inc.
+ * Copyright 2009,2010 Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,6 +28,14 @@
 #include <ctype.h>
 #include "tabled.h"
 
+enum config_type {
+	CFG_TYPE_NONE = 0,	/* Omitted <Type>, assuming Chunk */
+	CFG_TYPE_UNKNOWN,	/* Incompatible, like "swift-ssl" or "nfs4" */
+	CFG_TYPE_CHUNK,		/* Explicit Chunk */
+	CFG_TYPE_FS,
+	CFG_TYPE_SWIFT,
+};
+
 struct config_context {
 	char		*text;
 
@@ -49,6 +57,8 @@ struct config_context {
 	struct geo	loc;
 
 	unsigned int	nid;
+	enum config_type stor_type;
+	char		*stor_base;
 };
 
 static void cfg_elm_start (GMarkupParseContext *context,
@@ -315,6 +325,37 @@ static void cfg_elm_end (GMarkupParseContext *context,
 		}
 	}
 
+	else if (!strcmp(element_name, "Base")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "%s: Base element empty",
+			       cc->fname);
+			return;
+		}
+		free(cc->stor_base);
+		cc->stor_base = cc->text;
+		cc->text = NULL;
+	}
+
+	else if (!strcmp(element_name, "Type")) {
+		if (!cc->text) {
+			applog(LOG_WARNING, "%s: Type element empty",
+			       cc->fname);
+			return;
+		}
+		if (!strcmp(cc->text, "chunk")) {
+			cc->stor_type = CFG_TYPE_CHUNK;
+		} else if (!strcmp(cc->text, "fs")) {
+			cc->stor_type = CFG_TYPE_FS;
+		} else if (!strcmp(cc->text, "swift")) {
+			/* "cf" type reserved for "old" Rackspace auth. */
+			cc->stor_type = CFG_TYPE_SWIFT;
+		} else {
+			cc->stor_type = CFG_TYPE_UNKNOWN;
+		}
+		free(cc->text);
+		cc->text = NULL;
+	}
+
 	else {
 		applog(LOG_WARNING, "%s: Unknown element \"%s\"",
 		       cc->fname, element_name);
@@ -350,6 +391,32 @@ static void cfg_elm_text (GMarkupParseContext *context,
 		cc->text = g_strndup(text, text_len);
 }
 
+static bool stor_verify_chunk(char *fname, struct config_context *cc)
+{
+	if (!cc->nid) {
+		applog(LOG_WARNING, "%s: No NID", fname);
+		return false;
+	}
+	if (!cc->stor_ok) {
+		applog(LOG_WARNING, "%s: No useable Socket clause", fname);
+		return false;
+	}
+	return true;
+}
+
+static bool stor_verify_fs(char *fname, struct config_context *cc)
+{
+	if (!cc->nid) {
+		applog(LOG_WARNING, "%s: No NID", fname);
+		return false;
+	}
+	if (!cc->stor_base) {
+		applog(LOG_WARNING, "%s: No base directory", fname);
+		return false;
+	}
+	return true;
+}
+
 static const GMarkupParser cfg_parse_ops = {
 	.start_element		= cfg_elm_start,
 	.end_element		= cfg_elm_end,
@@ -378,15 +445,25 @@ void stor_parse(char *fname, const char *text, size_t len)
 
 	g_markup_parse_context_free(parser);
 
-	if (!ctx.nid) {
-		applog(LOG_WARNING, "%s: No NID\n", fname);
-		goto out_free_all;
+	switch (ctx.stor_type) {
+	case CFG_TYPE_FS:
+		if (!stor_verify_fs(fname, &ctx))
+			goto out_free_all;
+		stor_add_node(ctx.nid, STT_POSIX, ctx.stor_base,
+			      NULL, NULL, &ctx.loc);
+		break;
+	case CFG_TYPE_SWIFT:
+	case CFG_TYPE_UNKNOWN:
+		if (debugging)
+			applog(LOG_DEBUG, "%s: Unknown storage type", fname);
+		break;
+	case CFG_TYPE_CHUNK:
+	default:
+		if (!stor_verify_chunk(fname, &ctx))
+			goto out_free_all;
+		stor_add_node(ctx.nid, STT_CHUNK, NULL,
+			      ctx.stor_ok_host, ctx.stor_ok_port, &ctx.loc);
 	}
-	if (!ctx.stor_ok) {
-		applog(LOG_WARNING, "%s: No useable Socket clause", fname);
-		goto out_free_all;
-	}
-	stor_add_node(ctx.nid, ctx.stor_ok_host, ctx.stor_ok_port, &ctx.loc);
 
 out_free_all:
 	free(ctx.text);
@@ -400,5 +477,7 @@ out_free_all:
 	free(ctx.loc.area);
 	free(ctx.loc.zone);
 	free(ctx.loc.rack);
+
+	free(ctx.stor_base);
 	return;
 }

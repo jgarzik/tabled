@@ -12,6 +12,7 @@ do
 	fi
 done
 
+rm -f cld.port
 # May be different on Solaris... like /usr/libexec or such.
 cld -d data/cld -P cld.pid -p auto --port-file=cld.port -E
 

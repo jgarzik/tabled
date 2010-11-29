@@ -4,10 +4,14 @@ DATADIR=data
 TDBDIR=$DATADIR/tdb
 CLDDIR=$DATADIR/cld
 CHUNKDIR=$DATADIR/chunk
+BEFSDIR=$DATADIR/be_fs
 
 mkdir -p $TDBDIR
 mkdir -p $CLDDIR
 mkdir -p $CHUNKDIR
+mkdir -p $BEFSDIR
+
+echo 256 > $BEFSDIR/NID
 
 cat $top_srcdir/test/users.data | ../server/tdbadm -u -C $top_srcdir/test/tabled-test.conf
 

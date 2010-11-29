@@ -24,6 +24,7 @@
 #include <time.h>
 #include <netinet/in.h>
 #include <openssl/md5.h>
+#include <curl/curl.h>
 #include <glib.h>
 #include <pcre.h>
 #include <event.h>
@@ -90,6 +91,12 @@ struct geo {
 	char			*rack;
 };
 
+enum storage_type {
+	STT_CHUNK,		/* Hail chunkserver */
+	STT_POSIX,		/* UNIX filesystem interface, may be NFS */
+	STT_SWIFT		/* OpenStack storage (evolved CloudFiles) */
+};
+
 struct storage_node;
 struct open_chunk;
 
@@ -115,15 +122,21 @@ struct st_node_ops {
 struct storage_node {
 	struct list_head	all_link;
 	uint32_t		id;
+	bool			reported;
 	bool			up;
 	time_t			last_up;
+	enum storage_type	type;
 	struct st_node_ops	*ops;
 
 	int ref;		/* number of open_chunk or other */
 
+	/* chunk */
 	unsigned		alen;
 	struct sockaddr_in6	addr;
 	char			*hostname;
+
+	/* file */
+	char			*basepath;
 };
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int,
@@ -154,6 +167,13 @@ struct open_chunk {
 	int			rfd;
 	bool			r_armed;
 	struct event		revt;
+
+	/* posix */
+	/*
+	 * Don't merge fd, rfd, wfd prematurely. A future backend may need
+	 * several fds and then what? It's an implementation detail.
+	 */
+	int			pfd;
 };
 
 /* internal client socket state */
@@ -297,6 +317,9 @@ struct server {
 	struct server_stats	stats;		/* global statistics */
 };
 
+#define STOR_KEY_SLEN  16
+#define STOR_KEY_FMT	"%016llx"
+
 /*
  * Low-level channel, for both sides.
  *
@@ -429,6 +452,8 @@ extern void read_config(void);
 /* storage.c */
 extern struct storage_node *stor_node_get(struct storage_node *stn);
 extern void stor_node_put(struct storage_node *stn);
+extern void stor_read_event(int fd, short events, void *userdata);
+extern void stor_write_event(int fd, short events, void *userdata);
 static inline int stor_open(struct open_chunk *cep, struct storage_node *stn,
 			    struct event_base *ev_base)
 {
@@ -488,7 +513,8 @@ static inline int stor_node_check(struct storage_node *stn)
 	return stn->ops->node_check(stn);
 }
 extern struct storage_node *stor_node_by_nid(uint32_t nid);
-extern void stor_add_node(uint32_t nid,
+extern void stor_add_node(uint32_t nid, enum storage_type type,
+			  const char *base,
 			  const char *hostname, const char *portstr,
 			  struct geo *locp);
 extern void stor_stats(void);
@@ -499,6 +525,9 @@ extern void stor_parse(char *fname, const char *text, size_t len);
 
 /* stor_chunk.c */
 extern struct st_node_ops stor_ops_chunk;
+
+/* stor_fs.c */
+extern struct st_node_ops stor_ops_posix;
 
 /* replica.c */
 extern void rep_init(struct event_base *ev_base);

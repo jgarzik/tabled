@@ -6,11 +6,13 @@ EXTRA_DIST =			\
 	test.h			\
 	users.data		\
 	chunkd-test.conf	\
+	be_fs-test.conf		\
 	tabled-test.conf	\
 	prep-db			\
 	start-daemon		\
 	pid-exists		\
 	daemon-running		\
+	combo-redux		\
 	stop-daemon		\
 	clean-db
 
@@ -27,6 +29,7 @@ TESTS =				\
 	hdr-content-type	\
 	hdr-meta		\
 	list-keys		\
+	combo-redux		\
 	stop-daemon		\
 	clean-db
 

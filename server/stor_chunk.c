@@ -31,8 +31,7 @@
 #include <netdb.h>
 #include "tabled.h"
 
-static const char stor_key_fmt[] = "%016llx";
-#define STOR_KEY_SLEN  16
+static const char stor_key_fmt[] = STOR_KEY_FMT;
 
 static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 {
@@ -64,24 +63,6 @@ static int stor_new_stc(struct storage_node *stn, struct st_client **stcp)
 
 	*stcp = stc;
 	return 0;
-}
-
-static void stor_read_event(int fd, short events, void *userdata)
-{
-	struct open_chunk *cep = userdata;
-
-	cep->r_armed = false;		/* no EV_PERSIST */
-	if (cep->ocb)
-		(*cep->ocb)(cep);
-}
-
-static void stor_write_event(int fd, short events, void *userdata)
-{
-	struct open_chunk *cep = userdata;
-
-	cep->w_armed = false;		/* no EV_PERSIST */
-	if (cep->ocb)
-		(*cep->ocb)(cep);
 }
 
 /*

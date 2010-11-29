@@ -25,22 +25,21 @@ ret=0
 
 if [ ! -f tabled.pid ]
 then
-	# Just a warning. Previous test somehow made the daemon to die.
 	echo "No tabled PID file found." >&2
 else
 	killpid tabled.pid || ret=1
 fi
 
-if [ ! -f chunkd.pid ]
+# The combo-redux kills chunkd, kill quietly if anything slipped through.
+if [ -f chunkd.pid ]
 then
-	echo "No chunkd PID file found." >&2
-else
 	killpid chunkd.pid || ret=1
 fi
 
 if [ ! -f cld.pid ]
 then
-	echo "No cld PID file found." >&2
+	# Just a warning. Previous test somehow made the daemon to die.
+	echo "No cld.pid file found." >&2
 else
 	killpid cld.pid || ret=1
 fi
