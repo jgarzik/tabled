@@ -90,17 +90,40 @@ struct geo {
 	char			*rack;
 };
 
+struct storage_node;
+struct open_chunk;
+
+struct st_node_ops {
+	int (*open)(struct open_chunk *cep, struct storage_node *stn,
+		    struct event_base *ev_base);
+	int (*open_read)(struct open_chunk *cep,
+			 void (*cb)(struct open_chunk *),
+			 uint64_t key, uint64_t *psz);
+	void (*close)(struct open_chunk *cep);
+	void (*abort)(struct open_chunk *cep);
+	int (*put_start)(struct open_chunk *cep,
+			 void (*cb)(struct open_chunk *),
+			 uint64_t key, uint64_t size);
+	ssize_t (*put_buf)(struct open_chunk *cep, void *data, size_t len);
+	bool (*put_end)(struct open_chunk *cep);
+	ssize_t (*get_buf)(struct open_chunk *cep, void *data, size_t len);
+	int (*obj_del)(struct storage_node *stn, uint64_t key);
+	bool (*obj_test)(struct open_chunk *cep, uint64_t key);
+	int (*node_check)(struct storage_node *stn);
+};
+
 struct storage_node {
 	struct list_head	all_link;
 	uint32_t		id;
 	bool			up;
 	time_t			last_up;
+	struct st_node_ops	*ops;
+
+	int ref;		/* number of open_chunk or other */
 
 	unsigned		alen;
 	struct sockaddr_in6	addr;
 	char			*hostname;
-
-	int ref;		/* number of open_chunk or other */
 };
 
 typedef bool (*cli_evt_func)(struct client *, unsigned int,
@@ -118,6 +141,8 @@ struct open_chunk {
 	void (*ocb)(struct open_chunk *);
 	uint64_t		size;
 	uint64_t		done;
+
+	struct st_node_ops	*ops;
 
 	/* chunk */
 	int			wfd;
@@ -404,25 +429,68 @@ extern void read_config(void);
 /* storage.c */
 extern struct storage_node *stor_node_get(struct storage_node *stn);
 extern void stor_node_put(struct storage_node *stn);
-extern int stor_open(struct open_chunk *cep, struct storage_node *stn,
-		     struct event_base *ev_base);
-extern int stor_open_read(struct open_chunk *cep,
+static inline int stor_open(struct open_chunk *cep, struct storage_node *stn,
+			    struct event_base *ev_base)
+{
+	cep->ops = stn->ops;
+	return cep->ops->open(cep, stn, ev_base);
+}
+static inline int stor_open_read(struct open_chunk *cep,
+				 void (*cb)(struct open_chunk *),
+				 uint64_t key, uint64_t *psz)
+{
+	return cep->ops->open_read(cep, cb, key, psz);
+}
+/*
+ * The stor_abort and stor_close have an annoying convention of being possibly
+ * called on an unopened open_chunk. We deal with that.
+ */
+static inline void stor_close(struct open_chunk *cep)
+{
+	if (cep->ops)
+		cep->ops->close(cep);
+}
+static inline void stor_abort(struct open_chunk *cep)
+{
+	if (cep->ops)
+		cep->ops->abort(cep);
+}
+static inline int stor_put_start(struct open_chunk *cep,
 			  void (*cb)(struct open_chunk *),
-			  uint64_t key, uint64_t *psz);
-extern void stor_close(struct open_chunk *cep);
-extern void stor_abort(struct open_chunk *cep);
-extern int stor_put_start(struct open_chunk *cep,
-			  void (*cb)(struct open_chunk *),
-			  uint64_t key, uint64_t size);
-extern ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len);
-extern bool stor_put_end(struct open_chunk *cep);
-extern ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t len);
-extern int stor_obj_del(struct storage_node *stn, uint64_t key);
-extern bool stor_obj_test(struct open_chunk *cep, uint64_t key);
+			  uint64_t key, uint64_t size)
+{
+	return cep->ops->put_start(cep, cb, key, size);
+}
+static inline ssize_t stor_put_buf(struct open_chunk *cep, void *data,
+				   size_t len)
+{
+	return cep->ops->put_buf(cep, data, len);
+}
+static inline bool stor_put_end(struct open_chunk *cep)
+{
+	return cep->ops->put_end(cep);
+}
+static inline ssize_t stor_get_buf(struct open_chunk *cep, void *data,
+				   size_t len)
+{
+	return cep->ops->get_buf(cep, data, len);
+}
+static inline int stor_obj_del(struct storage_node *stn, uint64_t key)
+{
+	return stn->ops->obj_del(stn, key);
+}
+static inline bool stor_obj_test(struct open_chunk *cep, uint64_t key)
+{
+	return cep->ops->obj_test(cep, key);
+}
+static inline int stor_node_check(struct storage_node *stn)
+{
+	return stn->ops->node_check(stn);
+}
 extern struct storage_node *stor_node_by_nid(uint32_t nid);
-extern void stor_add_node(uint32_t nid, const char *hostname,
-			  const char *portstr, struct geo *locp);
-extern int stor_node_check(struct storage_node *stn);
+extern void stor_add_node(uint32_t nid,
+			  const char *hostname, const char *portstr,
+			  struct geo *locp);
 extern void stor_stats(void);
 extern bool stor_status(struct client *cli, GList *content);
 
