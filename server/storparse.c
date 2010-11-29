@@ -36,7 +36,7 @@ struct config_context {
 	bool		in_chunk;
 	bool		in_chunk_reported;
 
-	bool		in_storage;
+	bool		in_socket;
 	bool		stor_encrypt;
 	char		*stor_port;
 	char		*stor_host;
@@ -82,8 +82,8 @@ static void cfg_elm_start (GMarkupParseContext *context,
 	}
 
 	if (!strcmp(element_name, "Socket")) {
-		if (!cc->in_storage)
-			cc->in_storage = true;
+		if (!cc->in_socket)
+			cc->in_socket = true;
 		else
 			applog(LOG_ERR, "%s: Nested Socket", cc->fname);
 	}
@@ -95,7 +95,7 @@ static void cfg_elm_start (GMarkupParseContext *context,
 	}
 }
 
-static void cfg_elm_end_storage(struct config_context *cc)
+static void cfg_elm_end_socket(struct config_context *cc)
 {
 	if (cc->text) {
 		applog(LOG_WARNING, "%s: Extra text in Socket element: \"%s\"",
@@ -206,8 +206,8 @@ static void cfg_elm_end (GMarkupParseContext *context,
 	}
 
 	else if (!strcmp(element_name, "Socket")) {
-		cfg_elm_end_storage(cc);
-		cc->in_storage = false;
+		cfg_elm_end_socket(cc);
+		cc->in_socket = false;
 	}
 
 	else if (!strcmp(element_name, "Geo")) {
@@ -272,7 +272,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		if (cc->in_storage) {
+		if (cc->in_socket) {
 			n = strtol(cc->text, NULL, 10);
 			if (n > 0 && n < 65536) {
 				free(cc->stor_port);
@@ -296,7 +296,7 @@ static void cfg_elm_end (GMarkupParseContext *context,
 			return;
 		}
 
-		if (cc->in_storage) {
+		if (cc->in_socket) {
 			free(cc->stor_host);
 			cc->stor_host = cc->text;
 			cc->text = NULL;
