@@ -114,18 +114,18 @@ struct open_chunk {
 	void			*cli;	/* usually struct client * */
 	struct event_base	*evbase;
 
-	uint64_t		wtogo;
-	uint64_t		wkey;
-	void (*wcb)(struct open_chunk *);
+	uint64_t		key;
+	void (*ocb)(struct open_chunk *);
+	uint64_t		size;
+	uint64_t		done;
+
+	/* chunk */
 	int			wfd;
 	bool			w_armed;
 	struct event		wevt;
 	void			*wbuf;
 	size_t			wcnt;	/* in current buffer */
 
-	uint64_t		roff;
-	uint64_t		rsize;
-	void (*rcb)(struct open_chunk *);
 	int			rfd;
 	bool			r_armed;
 	struct event		revt;

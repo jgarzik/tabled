@@ -91,8 +91,8 @@ static void stor_read_event(int fd, short events, void *userdata)
 	struct open_chunk *cep = userdata;
 
 	cep->r_armed = false;		/* no EV_PERSIST */
-	if (cep->rcb)
-		(*cep->rcb)(cep);
+	if (cep->ocb)
+		(*cep->ocb)(cep);
 }
 
 static void stor_write_event(int fd, short events, void *userdata)
@@ -100,8 +100,8 @@ static void stor_write_event(int fd, short events, void *userdata)
 	struct open_chunk *cep = userdata;
 
 	cep->w_armed = false;		/* no EV_PERSIST */
-	if (cep->wcb)
-		(*cep->wcb)(cep);
+	if (cep->ocb)
+		(*cep->ocb)(cep);
 }
 
 /*
@@ -131,6 +131,8 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 {
 	char stckey[STOR_KEY_SLEN+1];
 
+	if (cep->key)
+		return -EBUSY;
 	if (!cep->stc)
 		return -EINVAL;
 
@@ -145,9 +147,10 @@ int stor_put_start(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 			       cep->node->id, stckey, (long long) size);
 		return -EIO;
 	}
-	cep->wtogo = size;
-	cep->wkey = key;
-	cep->wcb = cb;
+	cep->size = size;
+	cep->done = 0;
+	cep->key = key;
+	cep->ocb = cb;
 	event_set(&cep->wevt, cep->wfd, EV_WRITE, stor_write_event, cep);
 	event_base_set(cep->evbase, &cep->wevt);
 
@@ -167,13 +170,15 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 	char stckey[STOR_KEY_SLEN+1];
 	uint64_t size;
 
+	if (cep->key)
+		return -EBUSY;
 	if (!cep->stc)
 		return -EINVAL;
 
-	if (cep->rsize && cep->roff != cep->rsize) {
+	if (cep->size && cep->done != cep->size) {
 		applog(LOG_ERR, "Unfinished Get (%ld,%ld)",
-		       (long)cep->roff, (long)cep->rsize);
-		cep->rsize = 0;
+		       (long)cep->done, (long)cep->size);
+		cep->size = 0;
 	}
 
 	sprintf(stckey, stor_key_fmt, (unsigned long long) key);
@@ -184,9 +189,10 @@ int stor_open_read(struct open_chunk *cep, void (*cb)(struct open_chunk *),
 		return -EIO;
 	}
 	*psize = size;
-	cep->rsize = size;
-	cep->roff = 0;
-	cep->rcb = cb;
+	cep->size = size;
+	cep->done = 0;
+	cep->key = key;
+	cep->ocb = cb;
 	event_set(&cep->revt, cep->rfd, EV_READ, stor_read_event, cep);
 	event_base_set(cep->evbase, &cep->revt);
 
@@ -213,12 +219,14 @@ void stor_close(struct open_chunk *cep)
 		event_del(&cep->revt);
 		cep->r_armed = false;
 	}
-	cep->rsize = 0;
+	cep->size = 0;
 
 	if (cep->w_armed) {
 		event_del(&cep->wevt);
 		cep->w_armed = false;
 	}
+
+	cep->key = 0;
 }
 
 /*
@@ -251,40 +259,44 @@ void stor_abort(struct open_chunk *cep)
 		if (debugging)
 			applog(LOG_INFO, "Failed to reopen Chunk nid %u (%d)",
 			       cep->node->id, rc);
+
+		cep->size = 0;
+		cep->done = 0;
+		cep->key = 0;
 		return;
 	}
 
-	if (cep->wtogo) {
-		sprintf(stckey, stor_key_fmt, (unsigned long long) cep->wkey);
+	if (cep->done != cep->size) {
+		sprintf(stckey, stor_key_fmt, (unsigned long long) cep->key);
 		stc_delz(cep->stc, stckey);
-		cep->wtogo = 0;
 	}
 
 	if (cep->r_armed) {
 		event_del(&cep->revt);
 		cep->r_armed = false;
 	}
-	cep->rsize = 0;
 
 	if (cep->w_armed) {
 		event_del(&cep->wevt);
 		cep->w_armed = false;
 	}
+
+	cep->size = 0;
+	cep->done = 0;
+
+	cep->key = 0;
 }
 
 ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 {
 	int rc;
 
-	if (len > cep->wtogo) {
+	if (cep->done + len > cep->size) {
 		applog(LOG_ERR, "Put size %ld remaining %ld",
-		       (long) len, (long) cep->wtogo);
-		if (cep->wtogo == 0)
+		       (long) len, (long) (cep->size - cep->done));
+		if (cep->done == cep->size)
 			return -EIO;	/* will spin otherwise, better error */
-		len = cep->wtogo;
-		cep->wtogo = 0;
-	} else {
-		cep->wtogo -= len;
+		len = cep->size - cep->done;
 	}
 
 	if (!cep->stc)
@@ -294,6 +306,7 @@ ssize_t stor_put_buf(struct open_chunk *cep, void *data, size_t len)
 		event_add(&cep->wevt, NULL);
 		cep->w_armed = true;
 	}
+	cep->done += rc;
 	return rc;
 }
 
@@ -321,10 +334,10 @@ ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t req_len)
 	if (!cep->stc)
 		return -EDOM;
 
-	if (cep->roff + req_len < cep->roff)	/* wrap */
+	if (cep->done + req_len < cep->done)	/* wrap */
 		return -EINVAL;
-	if (cep->roff + req_len > cep->rsize)
-		xfer_len = cep->rsize - cep->roff;
+	if (cep->done + req_len > cep->size)
+		xfer_len = cep->size - cep->done;
 	else
 		xfer_len = req_len;
 	if (xfer_len == 0)
@@ -333,13 +346,13 @@ ssize_t stor_get_buf(struct open_chunk *cep, void *data, size_t req_len)
 	if (ret < 0)
 		return -EIO;
 
-	cep->roff += ret;
-	if (cep->roff == cep->rsize) {
-		cep->roff = 0;
-		cep->rsize = 0;
+	cep->done += ret;
+	if (cep->done == cep->size) {
+		cep->done = 0;
+		cep->size = 0;
 	}
 
-	if (xfer_len != ret && cep->rsize && !cep->r_armed) {
+	if (xfer_len != ret && cep->size && !cep->r_armed) {
 		cep->r_armed = true;
 		if (event_add(&cep->revt, NULL))
 			cep->r_armed = false;

@@ -1008,7 +1008,7 @@ static bool object_get_poke(struct client *cli)
 	ssize_t bytes;
 
 	/* The checks for in_len in caller should protect us, but let's see. */
-	if (!cli->in_ce.stc) {
+	if (!cli->in_ce.key) {
 		applog(LOG_ERR, "read on closed chunk, in_len %ld",
 		       (long) cli->in_len);
 		return false;
