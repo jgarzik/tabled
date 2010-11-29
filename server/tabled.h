@@ -497,6 +497,9 @@ extern bool stor_status(struct client *cli, GList *content);
 /* storparse.c */
 extern void stor_parse(char *fname, const char *text, size_t len);
 
+/* stor_chunk.c */
+extern struct st_node_ops stor_ops_chunk;
+
 /* replica.c */
 extern void rep_init(struct event_base *ev_base);
 extern void rep_start(void);

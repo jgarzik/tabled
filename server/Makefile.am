@@ -5,7 +5,8 @@ sbin_PROGRAMS	= tabled tdbadm
 
 tabled_SOURCES	= tabled.h		\
 		  bucket.c cldu.c config.c metarep.c object.c replica.c \
-		  server.c status.c storage.c storparse.c util.c
+		  server.c status.c storage.c storparse.c \
+		  stor_chunk.c util.c
 tabled_LDADD	= ../lib/libtdb.a		\
 		  @HAIL_LIBS@ @PCRE_LIBS@ @GLIB_LIBS@ \
 		  @CRYPTO_LIBS@ @DB4_LIBS@ @EVENT_LIBS@ @SSL_LIBS@
