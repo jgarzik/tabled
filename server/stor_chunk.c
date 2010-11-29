@@ -21,14 +21,12 @@
 #include "tabled-config.h"
 
 #include <sys/types.h>
-// #include <sys/socket.h>
 #include <errno.h>
 #include <syslog.h>
 #include <string.h>
 #include <glib.h>
 #include <event.h>
 #include <chunkc.h>
-#include <netdb.h>
 #include "tabled.h"
 
 static const char stor_key_fmt[] = STOR_KEY_FMT;
@@ -117,7 +115,7 @@ static int chunk_put_start(struct open_chunk *cep,
 	event_base_set(cep->evbase, &cep->wevt);
 
 	if (debugging)
-		applog(LOG_INFO, "stor nid %u put %s new for %lld",
+		applog(LOG_INFO, "stor nid %u put %s size %lld",
 		       cep->node->id, stckey, (long long) size);
 
 	return 0;
@@ -249,7 +247,7 @@ static ssize_t chunk_put_buf(struct open_chunk *cep, void *data, size_t len)
 	int rc;
 
 	if (cep->done + len > cep->size) {
-		applog(LOG_ERR, "Put size %ld remaining %ld",
+		/* P3 */ applog(LOG_ERR, "Put length %ld remaining %ld",
 		       (long) len, (long) (cep->size - cep->done));
 		if (cep->done == cep->size)
 			return -EIO;	/* will spin otherwise, better error */
